@@ -1,0 +1,497 @@
+version: "3.1"
+
+nlu:
+  - intent: goodbye
+    examples: |
+      - 拜拜!
+      - 再见!
+      - 拜!
+      - 退出。
+      - 结束。
+
+  - intent: greet
+    examples: |
+      - 你好!
+      - 您好!
+      - hello!
+      - hi!
+      - 喂!
+      - 在么!
+
+  - intent: affirm
+    examples: |
+      - 好。
+      - 没问题。
+      - 行。
+      - OK。
+      - 可以。
+      - 是。
+      - 是的。
+      - 确定。
+
+  - intent: deny
+    examples: |
+      - 不要。
+      - 不用。
+      - 不需要。
+      - 不。
+      - NO。
+      - 别。
+
+  - intent: info_person
+    examples: |
+      - 我叫[张杰]{"entity":"person","role":"patient"}
+      - 患者姓名是[李华]{"entity":"person","role":"patient"}
+      - [王芳]{"entity":"person","role":"patient"}
+      - [张杰]{"entity":"person","role":"patient"}
+      - 我叫[张三]{"entity":"person","role":"patient"}
+      - [李四]{"entity":"person","role":"patient"}
+      - 患者是[王五]{"entity":"person","role":"patient"}
+      - 名字叫[赵六]{"entity":"person","role":"patient"}
+      - [孙七]{"entity":"person","role":"patient"}
+      - 病人是[吴九]{"entity":"person","role":"patient"}
+      - [郑十]{"entity":"person","role":"patient"}本人
+      - 我是[钱十一]{"entity":"person","role":"patient"}
+      - [孙十二]{"entity":"person","role":"patient"}需要预约
+      - [周十三]{"entity":"person","role":"patient"}要看病
+      - 我替[吴十四]{"entity":"person","role":"patient"}
+      - 患者名字是[郑十五]{"entity":"person","role":"patient"}
+      - [钱十六]{"entity":"person","role":"patient"}
+      - [张医生]{"entity":"person","role":"doctor"}
+      - [李主任]{"entity":"person","role":"doctor"}
+      - [张若南医生]{"entity":"person","role":"doctor"}
+      - [张教授]{"entity":"person","role":"doctor"}
+      - [王怡医生]{"entity":"person","role":"doctor"}
+      - [王主任]{"entity":"person","role":"doctor"}
+      - 本人[刘敏]{"entity":"person","role":"patient"}
+      - 患者名叫[陈强]{"entity":"person","role":"patient"}
+      - [黄丽]{"entity":"person","role":"patient"}前来就诊
+      - 我的名字是[周明]{"entity":"person","role":"patient"}
+      - 病人姓名[吴丹]{"entity":"person","role":"patient"}
+      - [马涛]{"entity":"person","role":"patient"}要挂号
+      - 替[朱琳]{"entity":"person","role":"patient"}预约
+      - 患者是[胡伟]{"entity":"person","role":"patient"}本人
+      - 我叫[林巧]{"entity":"person","role":"patient"}，想看病
+      - [罗佳]{"entity":"person","role":"patient"}的就诊预约
+      - 病人[梁超]{"entity":"person","role":"patient"}
+      - 本人姓名[唐静]{"entity":"person","role":"patient"}
+      - 替家人[冯凯]{"entity":"person","role":"patient"}挂号
+      - [程媛]{"entity":"person","role":"patient"}需要看诊
+      - 患者姓名填写[袁浩]{"entity":"person","role":"patient"}
+      - [于娜]{"entity":"person","role":"patient"}前来预约
+      - 我是[沈杰]{"entity":"person","role":"patient"}，要挂号
+      - 病人是[韩雪]{"entity":"person","role":"patient"}
+      - 替[彭帅]{"entity":"person","role":"patient"}预约就诊
+      - [蔡琴]{"entity":"person","role":"patient"}的挂号信息
+      - 患者[潘峰]{"entity":"person","role":"patient"}
+      - 我的名字叫[蒋丽]{"entity":"person","role":"patient"}
+      - [杜明]{"entity":"person","role":"patient"}要找医生
+      - 替[魏芳]{"entity":"person","role":"patient"}挂个号
+      - 患者姓名[薛强]{"entity":"person","role":"patient"}
+      - [叶静]{"entity":"person","role":"patient"}前来就诊
+      - [高磊医生]{"entity":"person","role":"doctor"}
+      - [陈主任]{"entity":"person","role":"doctor"}
+      - [林晓燕医生]{"entity":"person","role":"doctor"}
+      - [李教授]{"entity":"person","role":"doctor"}
+      - [赵阳医生]{"entity":"person","role":"doctor"}
+      - [刘主任]{"entity":"person","role":"doctor"}
+      - [周雪医生]{"entity":"person","role":"doctor"}
+      - [王教授]{"entity":"person","role":"doctor"}
+      - [吴敏医生]{"entity":"person","role":"doctor"}
+      - [张副主任]{"entity":"person","role":"doctor"}
+      - [郑涛医生]{"entity":"person","role":"doctor"}
+      - [孙主任]{"entity":"person","role":"doctor"}
+
+  - intent: info_date
+    examples: |
+      - [后天](date)哦。
+      - [昨天](date)来着。
+      - [早上九点](date)。
+      - [下周二](date)吧。
+      - [这个周末](date)。
+      - [月底](date)的时候。
+      - [上午十点半](date)。
+      - [六点](date)
+      - [八点](date)
+      - [下午三点](date)
+      - [大后天](date)呀。
+      - [前天](date)来着。
+      - [凌晨五点](date)。
+      - [下周四](date)哦。
+      - [下个周末](date)。
+      - [月初](date)的时候。
+      - [上午九点十五分](date)。
+      - [七点半](date)。
+      - [十点](date)。
+      - [下午四点](date)。
+      - [明天上午](date)呢。
+      - [上周三](date)啦。
+      - [中午十二点](date)。
+      - [下周一](date)哟。
+      - [这个月底](date)。
+      - [上午八点十分](date)。
+      - [九点](date)。
+      - [十一点半](date)。
+      - [下午两点](date)。
+      - [后天下午](date)呀。
+      - [上周五](date)来着。
+      - [傍晚六点半](date)。
+      - [下周日](date)哦。
+      - [下个月初](date)。
+      - [上午七点](date)。
+      - [三点](date)。
+      - [五点四十](date)。
+      - [下午五点](date)。
+      - [今天晚上](date)呢。
+      - [上周日](date)啦。
+      - [深夜十一点](date)。
+      - [下周五](date)哟。
+      - [这个月初](date)。
+      - [上午十点](date)。
+      - [四点半](date)。
+      - [七点](date)。
+      - [下午一点](date)。
+      - [明天下午](date)呀。
+      - [上周二](date)来着。
+      - [清晨六点](date)。
+
+
+  - intent: info_department
+    examples: |
+      - [儿科](department)呢。
+      - [皮肤科](department)哦。
+      - [神经内科](department)。
+      - [妇产科](department)呀。
+      - [眼科](department)这边。
+      - [耳鼻喉科](department)。
+      - [心血管内科](department)。
+      - [中医科](department)哦。
+      - [呼吸内科](department)呀。
+      - [消化内科](department)哦。
+      - [内分泌科](department)。
+      - [普外科](department)呢。
+      - [胸外科](department)这边。
+      - [泌尿外科](department)哦。
+      - [骨科](department)呀。
+      - [神经外科](department)。
+      - [口腔科](department)呢。
+      - [急诊科](department)哦。
+      - [感染科](department)呀。
+      - [风湿免疫科](department)。
+      - [血液科](department)呢。
+      - [肾内科](department)哦。
+      - [老年病科](department)呀。
+      - [康复医学科](department)。
+      - [麻醉科](department)呢。
+      - [医学检验科](department)哦。
+      - [放射科](department)呀。
+      - [超声科](department)。
+      - [病理科](department)呢。
+      - [预防保健科](department)哦。
+      - [精神科](department)呀。
+      - [中西医结合科](department)。
+      - [重症医学科](department)呢。
+      - [皮肤科](department)呀。
+      - [小儿外科](department)哦。
+      - [乳腺外科](department)呀。
+      - [肛肠科](department)。
+      - [疼痛科](department)呢。
+
+
+  - intent: info_payment
+    examples: |
+      - [银行卡](payment)
+      - [信用卡](payment)
+      - [农行卡](payment)
+      - [工行卡](payment)
+      - [微信](payment)支付
+      - [支付宝](payment)
+      - [扫码](payment)吧
+      - [支付宝](payment)可以
+      - [微信](payment)可以吗
+      - 支付方式有[银行卡](payment)
+      - 可以刷[信用卡](payment)
+      - [工行卡](payment)能用吗
+      - [农行卡](payment)行吗
+      - [医保](payment)可以报销吗
+      - [扫码](payment)付款行吗
+      - 支付方式支持[支付宝](payment)
+      - 支付方式支持[微信](payment)
+      - 可以刷[农行卡](payment)
+      - 可以刷[工行卡](payment)
+      - 我能用[信用卡](payment)支付吗
+      - 我可以用[银行卡](payment)吗
+      - [微信](payment)支付行吗
+      - [支付宝](payment)能支付吗
+      - 支付方式可以走[医保](payment)
+      - 支付方式可以刷[信用卡](payment)
+      - 支付方式可以刷[工行卡](payment)
+      - 我想用[扫码](payment)付款
+
+  - intent: info_symptom
+    examples: |
+      - [腹泻](symptom)
+      - [头疼](symptom)
+      - [偏头痛](symptom)
+      - [颈椎不舒服](symptom)
+      - [脖子难受](symptom)
+      - [咳嗽](symptom)
+      - [咳的很厉害](symptom)
+      - [打喷嚏](symptom)
+      - [流鼻涕](symptom)
+      - [一直流鼻涕](symptom)
+      - [关节疼痛](symptom)
+      - [脚疼](symptom)
+      - [肚子疼](symptom)
+      - [肠胃不舒服](symptom)
+      - [头晕](symptom)
+      - [眼睛酸痛](symptom)
+      - [发烧](symptom)
+      - [咽喉痛](symptom)
+      - [胸闷](symptom)
+      - [咳嗽带痰](symptom)
+      - [腹痛](symptom)
+      - [胃痛](symptom)
+      - [打嗝](symptom)
+      - [恶心](symptom)
+      - [呕吐](symptom)
+      - [嗓子痒](symptom)
+      - [发冷](symptom)
+      - [流眼泪](symptom)
+      - [眼睛红](symptom)
+      - [牙疼](symptom)
+      - [腰疼](symptom)
+      - [腿疼](symptom)
+      - [手麻](symptom)
+      - [胸口痛](symptom)
+      - [乏力](symptom)
+      - [全身酸痛](symptom)
+
+
+  - intent: info_age
+    examples: |
+      - [五岁](age)
+      - [六岁](age)
+      - [二十岁](age)
+      - [八十](age)
+      - [五旬](age)老人
+      - [三岁](age)小孩
+      - [四十五岁](age)
+      - [三十周岁](age)
+      - [满月](age)
+      - [耄耋之年](age)
+      - [弱冠之年](age)
+      - [而立](age)
+      - [而立之年](age)
+      - [不惑](age)
+      - [古稀](age)
+      - [一月龄](age)
+      - [三个月](age)
+      - [六个月](age)
+      
+
+  - intent: register
+    examples: |
+      - 我要挂号
+      - 帮我挂号
+      - 挂号
+      - 需要看病
+      - 看医生
+      - 挂一下[后天上午八点](date)[骨科](department)[张医生]{"entity":"person","role":"doctor"}的号。
+      - [明天下午](date)[心电科](department)[李主任]{"entity":"person","role":"doctor"}的号帮[张杰]{"entity":"person","role":"patient"}挂一下。
+      - 麻烦给[周倩]{"entity":"person","role":"patient"}挂个[儿科](department)的号。
+      - 帮[刘畅]{"entity":"person","role":"patient"}约一下[明天下午](date)[皮肤科](department)[王医生]{"entity":"person","role":"doctor"}的号。
+      - [下周三上午](date)[神经内科](department)[刘教授]{"entity":"person","role":"doctor"}的号，给[赵勇]{"entity":"person","role":"patient"}挂一下。
+      - 想给[周八]{"entity":"person","role":"patient"}挂个[妇产科](department)[李医生]{"entity":"person","role":"doctor"}[后天](date)的号。
+      - [眼科](department)[张主任]{"entity":"person","role":"doctor"}[周五上午](date)的号，帮[吴九]{"entity":"person","role":"patient"}约上。
+      - 给[高杰]{"entity":"person","role":"patient"}挂[耳鼻喉科](department)[明天](date)的号可以吗？
+      - [心血管内科](department)[王大夫]{"entity":"person","role":"doctor"}[下周一](date)的号，帮[钱十一]{"entity":"person","role":"patient"}订一下。
+      - 麻烦帮[孙十二]{"entity":"person","role":"patient"}挂[中医科](department)[周三下午](date)[李教授]{"entity":"person","role":"doctor"}的号。
+      - [内科](department)[张医生]{"entity":"person","role":"doctor"}[今天上午](date)的号，给[周十三]{"entity":"person","role":"patient"}挂一个。
+      - 帮[吴十四]{"entity":"person","role":"patient"}约[急诊科](department)[明天凌晨](date)[王主任]{"entity":"person","role":"doctor"}的号。
+      - [骨科](department)[李医生]{"entity":"person","role":"doctor"}[下周末](date)的号，给[郑十五]{"entity":"person","role":"patient"}挂一下呗。
+      - 想给[钱十六]{"entity":"person","role":"patient"}挂[口腔科](department)[后天下午](date)[张教授]{"entity":"person","role":"doctor"}的号。
+      - 帮[李晨]{"entity":"person","role":"patient"}挂一个[口腔科](department)的号。
+      - 挂一下[后天上午八点](date)[骨科](department)[张若南医生]{"entity":"person","role":"doctor"}的号。
+      - [明天下午](date)[心电科](department)[李文涛主任]{"entity":"person","role":"doctor"}的号帮[周楠]{"entity":"person","role":"patient"}挂一下。
+      - 麻烦给[陈雪]{"entity":"person","role":"patient"}挂个[儿科](department)的号。
+      - 帮[王涛]{"entity":"person","role":"patient"}约一下[明天下午](date)[皮肤科](department)[王怡医生]{"entity":"person","role":"doctor"}的号。
+      - [下周三上午](date)[神经内科](department)[刘静教授]{"entity":"person","role":"doctor"}的号，给[赵静]{"entity":"person","role":"patient"}挂一下。
+      - 想给[黄琳]{"entity":"person","role":"patient"}挂个[妇产科](department)[李晓梅医生]{"entity":"person","role":"doctor"}[后天](date)的号。
+      - [眼科](department)[张志强主任]{"entity":"person","role":"doctor"}[周五上午](date)的号，帮[孙凯]{"entity":"person","role":"patient"}约上。
+      - 给[高杰]{"entity":"person","role":"patient"}挂[耳鼻喉科](department)[明天](date)的号可以吗？
+      - [心血管内科](department)[王大夫]{"entity":"person","role":"doctor"}[下周一](date)的号，帮[马莉]{"entity":"person","role":"patient"}订一下。
+      - 麻烦帮[周倩]{"entity":"person","role":"patient"}挂[中医科](department)[周三下午](date)[李国栋教授]{"entity":"person","role":"doctor"}的号。
+      - [内科](department)[张医生]{"entity":"person","role":"doctor"}[今天上午](date)的号，给[陈磊]{"entity":"person","role":"patient"}挂一个。
+      - 帮[赵勇]{"entity":"person","role":"patient"}约[急诊科](department)[明天凌晨](date)[王主任]{"entity":"person","role":"doctor"}的号。
+      - [骨科](department)[李医生]{"entity":"person","role":"doctor"}[下周末](date)的号，给[杨洋]{"entity":"person","role":"patient"}挂一下呗。
+      - 想给[刘畅]{"entity":"person","role":"patient"}挂[口腔科](department)[后天下午](date)[张教授]{"entity":"person","role":"doctor"}的号。
+ 
+  - intent: query_doctor
+    examples: |
+      - 帮我查下排班
+      - 看下[李医生]{"entity":"person","role":"doctor"}[这周](date)的排班
+      - [张医生]{"entity":"person","role":"doctor"}[明天](date)有空吗
+      - [王大夫]{"entity":"person","role":"doctor"}[今天](date)在吗？
+      - [李文涛主任]{"entity":"person","role":"doctor"}[这周](date)有门诊吗？
+      - 我想查一下[张志强主任]{"entity":"person","role":"doctor"}的出诊时间
+      - [陈医生]{"entity":"person","role":"doctor"}[周三](date)坐诊吗？
+      - [刘医生]{"entity":"person","role":"doctor"}哪天有号？
+      - 想了解下[王怡医生]{"entity":"person","role":"doctor"}[明天](date)的排班
+      - [周医生]{"entity":"person","role":"doctor"}最近有门诊吗？
+      - [赵医生]{"entity":"person","role":"doctor"}[下周](date)什么时候在？
+      - [王大夫]{"entity":"person","role":"doctor"}这两天在医院吗？
+      - [张教授]{"entity":"person","role":"doctor"}[周五](date)能挂号吗？
+      - [李文涛主任]{"entity":"person","role":"doctor"}[上午](date)有出诊吗？
+      - 我想查[刘医生]{"entity":"person","role":"doctor"}的门诊时间
+      - [陈医生]{"entity":"person","role":"doctor"}[下周一](date)有门诊吗？
+      - 帮我看下[王医生]{"entity":"person","role":"doctor"}[本周](date)的排班表
+      - 请问[李医生]{"entity":"person","role":"doctor"}哪天有空
+      - [赵医生]{"entity":"person","role":"doctor"}[明天上午](date)在不在？
+      - 想预约前先看看[张教授]{"entity":"person","role":"doctor"}的出诊安排
+      - [李国栋教授]{"entity":"person","role":"doctor"}现在有门诊吗？
+      - 帮我查查[王主任]{"entity":"person","role":"doctor"}[这周五](date)的排班情况
+      - [刘医生]{"entity":"person","role":"doctor"}[本周三](date)下午有号吗？
+
+  - intent: pay
+    examples: |
+      - 我要缴费
+      - 帮我缴费
+      - 请问怎么付款
+      - 交费需要怎么操作
+      - 我这边要交多少钱
+      - 我看病花了多少钱
+      - 我要交费
+      - 帮我看下[张三]{"entity":"person","role":"patient"}的账单
+      - 用[支付宝](payment)交吧
+      - 我用[微信](payment)支付
+      - 刷[银行卡](payment)吧
+      - 试下[信用卡](payment)行不行
+      - 能不能[医保](payment)支付
+      - 帮李国栋用[微信](payment)支付交下钱
+      - 我有[医保](payment)的
+      - 走[医保](payment)吧
+      - 可以刷[工行卡](payment)的吗
+      - 我要付钱
+      - 帮我付一下
+      - 怎么付款比较方便
+      - 看下我的账单多少钱
+      - 我要结账
+      - 帮[陶喆]{"entity":"person","role":"patient"}付费
+      - 用[支付宝](payment)结账吧
+      - [微信](payment)能支付吗
+      - 刷[信用卡](payment)支付
+      - 能用[银行卡](payment)吗
+      - 可以用[医保](payment)结账吗
+      - 我要给[周杰伦]{"entity":"person","role":"patient"}交费用
+      - 支付方式有哪些
+      - 我想付款
+      - 帮我用[微信](payment)付钱
+      - [支付宝](payment)可以吗
+      - 走[医保](payment)报销
+      - 我这边要缴费多少
+      - 请帮我结账
+      - 可以刷[工行卡](payment)吗
+
+  - intent: query_symptom
+    examples: |
+      - 我要查下症状。
+      - 我感冒了。
+      - 我不太舒服
+      - 帮我看下身体
+      - 我要问诊
+      - 我这是什么症状
+      - 我这是什么情况
+      - 生什么病了吗
+      - [五岁](age)小孩[咳嗽](symptom)怎么办
+      - 看下我家[三岁](age)小孩是什么症状
+      - 我家[六十岁](age)老人感冒了
+      - 我想查下自己的症状
+      - 帮我看看身体情况
+      - 我不舒服，怎么办
+      - 我要问问医生
+      - 我最近总咳嗽
+      - 我[发烧](symptom)了
+      - 我[头晕脑胀](symptom)
+      - 我家[四岁](age)孩子[拉肚子](symptom)
+      - 我家[十岁](age)孩子总[打喷嚏](symptom)
+      - 我[二十岁](age)感冒了
+      - 帮我看看我家[七十岁](age)老人身体
+      - 我想了解一下症状
+      - 我[咳嗽](symptom)有点严重
+      - 我[发烧](symptom)持续两天了
+      - 我家[三岁](age)孩子不舒服
+      - 想问一下我这是什么病
+      - 我家[五十岁](age)老人[头疼](symptom)
+      - 我最近总觉得[胸口闷](symptom)
+      - 帮我判断一下症状
+      - 我有点[浑身乏力](symptom)
+
+
+  - synonym: 下星期一
+    examples: |
+      - 下星期一。
+
+  - synonym: 今天
+    examples: |
+      - 早上。
+      - 中午。
+      - 晚上。
+      - 下午。
+      - 傍晚。
+      - 今天。
+
+  - synonym: 明天
+    examples: |
+      - 明天
+  
+
+  - intent: faq/ask_pay
+    examples: |
+      - 我该如何缴费
+      - 我要怎么付款
+
+  - intent: faq/ask_register
+    examples: |
+      - 怎么挂号呢？
+      - 我要如何看医生？
+
+  - intent: faq/ask_parking
+    examples: |
+      - 这边有停车场吗？
+      - 停车场在哪？
+
+  - intent: faq/pay_parking
+    examples: |
+      - 这边停车怎么付费？
+      - 这边停车怎么收费？
+
+  - intent: faq/phone_number
+    examples: |
+      - 医院电话是多少？
+
+  - intent: faq/ask_info_hospital
+    examples: |
+      - 可以介绍下你们医院吗？
+      - 你们是什么医院？
+
+  - intent: faq/ask_info_doctor
+    examples: |
+      - 请问你们有什么医生
+      - 怎么看你们有哪些医生
+
+  - intent: faq/ask_info_canteen
+    examples: |
+      - 你们这有餐厅吗？
+      - 我要去哪吃饭？
+
+  - intent: faq/ask_position_inpatient
+    examples: |
+      - 住院楼在哪？
+      - 住院楼怎么走？
+
+  - intent: faq/ask_position_stomatology
+    examples: |
+      - 口腔科怎么走？
+      - 口腔科在哪？
+

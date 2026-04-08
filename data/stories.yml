@@ -1,0 +1,178 @@
+version : "3.1"
+stories:
+  - story: greet
+    steps:
+      - intent: greet
+      - action: utter_greet
+
+  - story: say goodbye
+    steps:
+      - intent: goodbye
+      - action: utter_goodbye
+
+  - story: register form
+    steps:
+      - intent: register
+      - action: register_form
+      - active_loop: register_form
+      - intent: deny
+      - action: utter_ask_register_confirm_then_no
+
+  - story: register successed
+    steps :
+      - intent: register
+      - action: register_form
+      - active_loop: register_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_register_form_submit
+      - intent: affirm
+      - action: utter_ask_register_confirm_then_yes
+      - action: action_register
+      - slot_was_set:
+        - api_register_succeed: true
+      - action: utter_api_register_succeed_true
+    
+  - story: register failed
+    steps :
+      - intent: register
+      - action: register_form
+      - active_loop: register_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_register_form_submit
+      - intent: affirm
+      - action: utter_ask_register_confirm_then_yes
+      - action: action_register
+      - slot_was_set:
+        - api_register_succeed: false
+      - action: utter_api_register_succeed_false
+
+
+  
+  - story: query doctor form
+    steps:
+      - intent: query_doctor
+      - action: query_doctor_form
+      - active_loop: query_doctor_form
+      - intent: deny
+      - action: utter_ask_query_doctor_confirm_then_no
+
+  - story: query doctor successed
+    steps :
+      - intent: query_doctor
+      - action: query_doctor_form
+      - active_loop: query_doctor_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_query_doctor_form_submit
+      - intent: affirm
+      - action: utter_ask_query_doctor_confirm_then_yes
+      - action: action_query_doctor
+      - slot_was_set:
+        - api_query_doctor_succeed: true
+      - action: utter_api_query_doctor_succeed_true
+    
+  - story: query doctor failed
+    steps :
+      - intent: query_doctor
+      - action: query_doctor_form
+      - active_loop: query_doctor_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_query_doctor_form_submit
+      - intent: affirm
+      - action: utter_ask_query_doctor_confirm_then_yes
+      - action: action_query_doctor
+      - slot_was_set:
+        - api_query_doctor_succeed: false
+      - action: utter_api_query_doctor_succeed_false
+
+
+
+  - story: pay form
+    steps:
+      - intent: pay
+      - action: pay_form
+      - active_loop: pay_form
+      - intent: deny
+      - action: utter_ask_pay_confirm_then_no
+
+  - story: pay successed
+    steps :
+      - intent: pay
+      - action: pay_form
+      - active_loop: pay_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_pay_form_submit
+      - intent: affirm
+      - action: utter_ask_pay_confirm_then_yes
+      - action: action_pay
+      - slot_was_set:
+        - api_pay_succeed: true
+      - action: utter_api_pay_succeed_true
+    
+  - story: pay failed
+    steps :
+      - intent: pay
+      - action: pay_form
+      - active_loop: pay_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_pay_form_submit
+      - intent: affirm
+      - action: utter_ask_pay_confirm_then_yes
+      - action: action_pay
+      - slot_was_set:
+        - api_pay_succeed: false
+      - action: utter_api_pay_succeed_false
+
+
+
+  - story: query symptom form
+    steps:
+      - intent: query_symptom
+      - action: query_symptom_form
+      - active_loop: query_symptom_form
+      - intent: deny
+      - action: utter_ask_query_symptom_confirm_then_no
+
+  - story: query symptom successed
+    steps :
+      - intent: query_symptom
+      - action: query_symptom_form
+      - active_loop: query_symptom_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_query_symptom_form_submit
+      - intent: affirm
+      - action: utter_ask_query_symptom_confirm_then_yes
+      - action: action_query_symptom
+      - slot_was_set:
+        - api_query_symptom_succeed: true
+      - action: utter_api_query_symptom_succeed_true
+    
+  - story: query symptom failed
+    steps :
+      - intent: query_symptom
+      - action: query_symptom_form
+      - active_loop: query_symptom_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_query_symptom_form_submit
+      - intent: affirm
+      - action: utter_ask_query_symptom_confirm_then_yes
+      - action: action_query_symptom
+      - slot_was_set:
+        - api_query_symptom_succeed: false
+      - action: utter_api_query_symptom_succeed_false
+

@@ -1,0 +1,253 @@
+version: "3.1"
+
+intents:
+  - greet
+  - goodbye
+  - faq:
+      is_retrieval_intent: true
+  - affirm
+  - deny
+  - register:
+      use_entities: [ ]
+  - query_doctor:
+      use_entities: [ ]
+  - pay:
+      use_entities: [ ]
+  - query_symptom:
+      use_entities: [ ]
+  - info_department
+  - info_person
+  - info_date
+  - info_payment
+  - info_symptom
+  - info_age
+
+entities:
+  - department
+  - person
+  - date
+  - payment
+  - symptom
+  - age
+
+slots:
+  api_register_succeed:
+    type: bool
+    influence_conversation: true
+    mappings:
+      - type: custom
+
+  api_query_doctor_succeed:
+    type: bool
+    influence_conversation: true
+    mappings:
+      - type: custom
+
+  api_pay_succeed:
+    type: bool
+    influence_conversation: true
+    mappings:
+      - type: custom
+
+  api_query_symptom_succeed:
+    type: bool
+    influence_conversation: true
+    mappings:
+      - type: custom
+
+  person_doctor:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: from_entity
+        entity: person
+        role: doctor
+      - type: from_entity
+        entity: person
+        role: info_person
+  
+  person_patient:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: from_entity
+        entity: person
+        role: patient
+      - type: from_entity
+        entity: person
+        role: info_person
+  
+  date:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: from_entity
+        entity: date
+
+  department:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: from_entity
+        entity: department
+
+  payment:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: from_entity
+        entity: payment
+
+  symptom:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: from_entity
+        entity: symptom
+
+  age:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: from_entity
+        entity: age
+
+forms:
+  register_form:
+    required_slots:
+      - person_doctor
+      - person_patient
+      - department
+      - date
+  
+  query_doctor_form:
+    required_slots:
+      - person_doctor
+      - department
+      - date
+
+  pay_form:
+    required_slots:
+      - person_patient
+      - payment
+
+  query_symptom_form:
+    required_slots:
+      - symptom
+      - age
+ 
+
+responses:
+  # utter_default:
+  #   - text: "我不太明白您的意思，可以换个说法吗？"
+  utter_greet:
+    - text: 您好，欢迎使用医院智能助手
+  utter_goodbye:
+    - text: 再见!
+  utter_ask_person_patient:
+    - text: 请问患者姓名是？
+  utter_ask_department:
+    - text: 请问您要找哪个科室？
+  utter_ask_person_doctor:
+    - text: 请问您要找哪位医生？
+  utter_ask_date:
+    - text: 请问您要的时间是？
+  utter_ask_payment:
+    - text: 请问您想用什么方式支付？
+  utter_ask_age:
+    - text: 请问患者年龄是多少？
+  utter_ask_symptom:
+    - text: 请问有什么症状呢？
+
+
+
+
+  utter_ask_register_confirm:
+    - text: 您确定要为{person_patient}挂{department}{person_doctor}，{date}的号吗？
+  utter_ask_register_confirm_then_no:
+    - text: 好的!请重新输入。
+  utter_ask_register_confirm_then_yes:
+    - text: 正在为{person_patient}预约{department}{person_doctor}{date}的号。
+  utter_api_register_succeed_true:
+    - text: 挂号成功。
+  utter_api_register_succeed_false:
+    - text: 挂号失败，请稍后重试!
+
+  utter_ask_query_doctor_confirm:
+    - text: 您确定要查询{department}{person_doctor}{date}的排班情况吗？
+  utter_ask_query_doctor_confirm_then_no:
+    - text: 好的!请重新输入。
+  utter_ask_query_doctor_confirm_then_yes:
+    - text: 正在查询{department}{person_doctor}{date}的排班情况。
+  utter_api_query_doctor_succeed_true:
+    - text: 李医生周一、周三上午坐诊，地点在门诊二楼内科。
+  utter_api_query_doctor_succeed_false:
+    - text: 暂未查询到该医生的排班信息，请稍后再试。
+
+  utter_ask_pay_confirm:
+    - text: 确认是否缴费金额50元，支付方式为{payment}。
+  utter_ask_pay_confirm_then_no:
+    - text: 好的!请重新输入。
+  utter_ask_pay_confirm_then_yes:
+    - text: 正在为您缴费。
+  utter_api_pay_succeed_true:
+    - text: 缴费成功。
+  utter_api_pay_succeed_false:
+    - text: 缴费失败，请检查网络或支付账户后重试。
+
+  utter_ask_query_symptom_confirm:
+    - text: 您确定要查询{age}患者{symptom}的症状吗？
+  utter_ask_query_symptom_confirm_then_no:
+    - text: 好的!请重新输入。
+  utter_ask_query_symptom_confirm_then_yes:
+    - text: 正在查询患者{symptom}的症状。
+  utter_api_query_symptom_succeed_true:
+    - text: 患者的症状可能是咽喉炎，需要注意休息，多喝水，避免刺激性食物，严重时请及时就医。
+  utter_api_query_symptom_succeed_false:
+    - text: 暂未为您查询到相关症状。
+
+actions:
+  - utter_greet
+  - utter_goodbye
+  - respond_faq
+
+  - validate_register_form
+  - action_register
+  - action_register_form_submit
+  - utter_ask_register_confirm
+  - utter_ask_register_confirm_then_no
+  - utter_ask_register_confirm_then_yes
+  - utter_api_register_succeed_true
+  - utter_api_register_succeed_false
+
+  - validate_query_doctor_form
+  - action_query_doctor
+  - action_query_doctor_form_submit
+  - utter_ask_query_doctor_confirm
+  - utter_ask_query_doctor_confirm_then_no
+  - utter_ask_query_doctor_confirm_then_yes
+  - utter_api_query_doctor_succeed_true
+  - utter_api_query_doctor_succeed_false
+
+  - validate_pay_form
+  - action_pay
+  - action_pay_form_submit
+  - utter_ask_pay_confirm
+  - utter_ask_pay_confirm_then_no
+  - utter_ask_pay_confirm_then_yes
+  - utter_api_pay_succeed_true
+  - utter_api_pay_succeed_false
+
+  - validate_query_symptom_form
+  - action_query_symptom
+  - action_query_symptom_form_submit
+  - utter_ask_query_symptom_confirm
+  - utter_ask_query_symptom_confirm_then_no
+  - utter_ask_query_symptom_confirm_then_yes
+  - utter_api_query_symptom_succeed_true
+  - utter_api_query_symptom_succeed_false
+
+
+session_config:
+  session_expiration_time: 0
+  carry_over_slots_to_new_session: true
