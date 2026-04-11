@@ -83,20 +83,54 @@ slots:
         entity: topic
 
 forms:
+  # 用户在同一会话中切换问候/能力说明/其它业务时，应退出当前表单，避免与规则回复叠成两条 bot 消息。
   borrow_book_form:
     required_slots:
       - book_title
       - call_number
+    ignored_intents:
+      - greet
+      - goodbye
+      - ask_capabilities
+      - borrow_guide
+      - data_inquiry
+      - reading_recommend
+      - space_booking
+      - return_book
+      - faq
+      - nlu_fallback
 
   return_book_form:
     required_slots:
       - book_title
       - call_number
+    ignored_intents:
+      - greet
+      - goodbye
+      - ask_capabilities
+      - borrow_guide
+      - data_inquiry
+      - reading_recommend
+      - space_booking
+      - borrow_book
+      - faq
+      - nlu_fallback
 
   space_booking_form:
     required_slots:
       - room_type
       - time_slot
+    ignored_intents:
+      - greet
+      - goodbye
+      - ask_capabilities
+      - borrow_guide
+      - data_inquiry
+      - reading_recommend
+      - borrow_book
+      - return_book
+      - faq
+      - nlu_fallback
 
 responses:
   utter_default:
@@ -200,5 +234,6 @@ actions:
   - action_reading_recommend
 
 session_config:
-  session_expiration_time: 0
-  carry_over_slots_to_new_session: true
+  # 0 表示会话永不过期，同一 sender 会长期保留 active_loop，表现为「每条回复后都追问预约空间」。
+  session_expiration_time: 60
+  carry_over_slots_to_new_session: false

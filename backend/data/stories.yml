@@ -4,11 +4,13 @@ stories:
   - story: greet
     steps:
       - intent: greet
+      - action: action_deactivate_loop
       - action: utter_greet
 
   - story: say goodbye
     steps:
       - intent: goodbye
+      - action: action_deactivate_loop
       - action: utter_goodbye
 
   - story: borrow book form deny

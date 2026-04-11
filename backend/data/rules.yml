@@ -1,46 +1,60 @@
 version: "3.1"
 
 rules:
+  # 在问候、能力说明、兜底等规则前执行 action_deactivate_loop，避免与未结束的表单追问叠成两条 bot 消息。
   - rule: 问候
     steps:
       - intent: greet
+      - action: action_deactivate_loop
       - action: utter_greet
 
   - rule: 告别
     steps:
       - intent: goodbye
+      - action: action_deactivate_loop
       - action: utter_goodbye
 
   - rule: 能做什么
     steps:
       - intent: ask_capabilities
+      - action: action_deactivate_loop
       - action: utter_capabilities
 
-  - rule: NLU 置信度不足时兜底
+  # 有活跃表单时勿抢答：否则用户填槽短句易被标成 nlu_fallback，整句走兜底并 deactivate_loop，预约流中断。
+  - rule: NLU 置信度不足时兜底（无表单）
+    condition:
+      - active_loop: null
     steps:
       - intent: nlu_fallback
+      - action: action_deactivate_loop
       - action: utter_default
 
   - rule: FAQ
     steps:
       - intent: faq
+      - action: action_deactivate_loop
       - action: utter_faq
 
   - rule: 借阅指引
     steps:
       - intent: borrow_guide
+      - action: action_deactivate_loop
       - action: utter_borrow_guide
 
   - rule: 数据类咨询说明
     steps:
       - intent: data_inquiry
+      - action: action_deactivate_loop
       - action: utter_data_inquiry
 
   - rule: 推荐阅读
     steps:
       - intent: reading_recommend
+      - action: action_deactivate_loop
       - action: action_reading_recommend
 
+  # 表单激活不加 action_deactivate_loop，否则与 stories.yml 中带 Memoization 的多轮路径冲突（InvalidRule）。
+  # 切换业务时由问候/兜底等规则里的 deactivate 清掉残留 loop；借还/预约之间切换时由新表单覆盖 active_loop。
   - rule: 激活借书表单
     steps:
       - intent: borrow_book

@@ -116,6 +116,10 @@ class ValidateSpaceBookingForm(FormValidationAction):
     def name(self) -> Text:
         return "validate_space_booking_form"
 
+    @staticmethod
+    def _latest_text(tracker: Tracker) -> str:
+        return (tracker.latest_message.get("text") or "").strip()
+
     async def validate_room_type(
         self,
         slot_value: Any,
@@ -123,7 +127,21 @@ class ValidateSpaceBookingForm(FormValidationAction):
         tracker: Tracker,
         domain: Dict[Text, Any],
     ) -> Dict[Text, Any]:
-        return {"room_type": slot_value}
+        raw = (str(slot_value).strip() if slot_value not in (None, "") else "") or self._latest_text(
+            tracker
+        )
+        if not raw:
+            dispatcher.utter_message(
+                text="请直接回复空间类型，例如：研讨间、自习座位、静音阅览区（「研讨室」与「研讨间」均可）。"
+            )
+            return {"room_type": None}
+        if "研讨" in raw or "研讨室" in raw:
+            return {"room_type": "研讨间"}
+        if "自习" in raw or ("座位" in raw and "静音" not in raw):
+            return {"room_type": "自习座位"}
+        if "静音" in raw:
+            return {"room_type": "静音阅览区"}
+        return {"room_type": raw}
 
     async def validate_time_slot(
         self,
@@ -132,7 +150,13 @@ class ValidateSpaceBookingForm(FormValidationAction):
         tracker: Tracker,
         domain: Dict[Text, Any],
     ) -> Dict[Text, Any]:
-        return {"time_slot": slot_value}
+        raw = (str(slot_value).strip() if slot_value not in (None, "") else "") or self._latest_text(
+            tracker
+        )
+        if not raw:
+            dispatcher.utter_message(text="请说一下方便的时间段，例如「明天下午」「周五上午」。")
+            return {"time_slot": None}
+        return {"time_slot": raw}
 
 
 class ActionSpaceBookingFormSubmit(Action):

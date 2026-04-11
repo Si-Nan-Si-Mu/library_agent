@@ -8,6 +8,11 @@ nlu:
       - 在吗
       - hi
       - hello
+      - nihao
+      - 嗨
+      - 早上好
+      - 下午好
+      - 在不在
 
   - intent: goodbye
     examples: |
@@ -21,6 +26,11 @@ nlu:
       - 你能做什么
       - 有什么功能
       - 我能干什么
+      - 功能
+      - 你会什么
+      - 介绍一下你自己
+      - 使用说明
+      - 怎么用你
 
   - intent: affirm
     examples: |
@@ -68,22 +78,44 @@ nlu:
       - 我要借书
       - 帮我借一本书
       - 办理借阅
+      - 借书
+      - 想借一本书
       - 我想借[红楼梦](book_title)
       - 借一本索书号是[I247.5/88](call_number)的书
+      - 帮我办理借书手续
 
   - intent: return_book
     examples: |
       - 我要还书
       - 办理归还
+      - 还书
+      - 我要办理还书
       - 还一本[西游记](book_title)
       - 归还索书号[TP312/102](call_number)
 
   - intent: space_booking
     examples: |
+      - 预约
+      - 我要预约
+      - 想预约
+      - 预约一下
+      - 空间预约
+      - 订座
+      - 订座位
+      - 研讨间预约
       - 预约研讨间
       - 我要预约座位
       - 订一个[研讨间](room_type)
       - 想预约[明天下午](time_slot)的自习
+      - 预约自习座位
+      - 订研讨室
+      - 静音区有位置吗
+      - [研讨室](room_type)
+      - [研讨间](room_type)
+      - 要[研讨室](room_type)
+      - 选[自习座位](room_type)
+      - [静音区](room_type)
+      - 就订[研讨间](room_type)
 
   - intent: faq/ask_open_hours
     examples: |

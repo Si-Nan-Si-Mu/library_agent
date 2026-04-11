@@ -6,6 +6,7 @@ stories:
       - user: |
           你好
         intent: greet
+      - action: action_deactivate_loop
       - action: utter_greet
 
   - story: goodbye path
@@ -13,6 +14,7 @@ stories:
       - user: |
           再见
         intent: goodbye
+      - action: action_deactivate_loop
       - action: utter_goodbye
 
   - story: borrow guide
@@ -20,6 +22,7 @@ stories:
       - user: |
           怎么借书
         intent: borrow_guide
+      - action: action_deactivate_loop
       - action: utter_borrow_guide
 
   - story: data inquiry
@@ -27,4 +30,66 @@ stories:
       - user: |
           借阅量统计
         intent: data_inquiry
+      - action: action_deactivate_loop
       - action: utter_data_inquiry
+
+  - story: ask capabilities short
+    steps:
+      - user: |
+          功能
+        intent: ask_capabilities
+      - action: action_deactivate_loop
+      - action: utter_capabilities
+
+  - story: greet nihao
+    steps:
+      - user: |
+          nihao
+        intent: greet
+      - action: action_deactivate_loop
+      - action: utter_greet
+
+  - story: nlu fallback to default
+    steps:
+      - user: |
+          asdfgh 无意义乱码
+        intent: nlu_fallback
+      - action: action_deactivate_loop
+      - action: utter_default
+
+  - story: reading recommend with topic
+    steps:
+      - user: |
+          推荐人工智能的书
+        intent: reading_recommend
+      - action: action_deactivate_loop
+      - action: action_reading_recommend
+
+  - story: borrow book opens form
+    steps:
+      - user: |
+          我要借书
+        intent: borrow_book
+      - action: borrow_book_form
+
+  - story: return book opens form
+    steps:
+      - user: |
+          我要还书
+        intent: return_book
+      - action: return_book_form
+
+  - story: space booking opens form
+    steps:
+      - user: |
+          预约研讨间
+        intent: space_booking
+      - action: space_booking_form
+
+  - story: faq open hours
+    steps:
+      - user: |
+          开馆时间
+        intent: faq/ask_open_hours
+      - action: action_deactivate_loop
+      - action: utter_faq
