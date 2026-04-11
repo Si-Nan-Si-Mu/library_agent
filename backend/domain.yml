@@ -1,0 +1,204 @@
+version: "3.1"
+
+intents:
+  - greet
+  - goodbye
+  - ask_capabilities
+  - nlu_fallback
+  - faq:
+      is_retrieval_intent: true
+  - affirm
+  - deny
+  - borrow_book:
+      use_entities: []
+  - return_book:
+      use_entities: []
+  - borrow_guide
+  - space_booking:
+      use_entities: []
+  - reading_recommend:
+      use_entities: []
+  - data_inquiry
+
+entities:
+  - book_title
+  - call_number
+  - room_type
+  - time_slot
+  - topic
+  - floor_zone
+
+slots:
+  api_borrow_succeed:
+    type: bool
+    influence_conversation: true
+    mappings:
+      - type: custom
+
+  api_return_succeed:
+    type: bool
+    influence_conversation: true
+    mappings:
+      - type: custom
+
+  api_space_book_succeed:
+    type: bool
+    influence_conversation: true
+    mappings:
+      - type: custom
+
+  book_title:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: from_entity
+        entity: book_title
+
+  call_number:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: from_entity
+        entity: call_number
+
+  room_type:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: from_entity
+        entity: room_type
+
+  time_slot:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: from_entity
+        entity: time_slot
+
+  topic:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: from_entity
+        entity: topic
+
+forms:
+  borrow_book_form:
+    required_slots:
+      - book_title
+      - call_number
+
+  return_book_form:
+    required_slots:
+      - book_title
+      - call_number
+
+  space_booking_form:
+    required_slots:
+      - room_type
+      - time_slot
+
+responses:
+  utter_default:
+    - text: "我不太明白您的意思。您可以说：借书、还书、借阅规则、研讨间预约、推荐阅读，或「开馆时间」等常见问题。"
+  utter_capabilities:
+    - text: "我是图书馆智能助手（演示）。可协助：图书借阅与归还、借阅指引、研讨间/座位预约、主题推荐阅读、开放数据类咨询（不编造具体数字），以及馆规 FAQ。"
+  utter_greet:
+    - text: 您好，欢迎使用图书馆智能助手。
+  utter_goodbye:
+    - text: 再见，欢迎常来图书馆。
+
+  utter_borrow_guide:
+    - text: "借书一般流程：① 在目录或检索机查询书目与索书号；② 到对应书库取书；③ 持读者证在借还台办理借阅。演示环境未对接真实 OPAC，具体以馆方系统为准。"
+
+  utter_data_inquiry:
+    - text: "涉及馆藏统计、借阅趋势等数据，演示助手不返回精确数字；正式环境需对接报表 API 并做权限与审计。您可先说明想了解的指标类型与时间范围。"
+
+  utter_ask_book_title:
+    - text: 请问要办理的书名是？
+  utter_ask_call_number:
+    - text: 请问索书号（或条码号）是？
+
+  utter_ask_room_type:
+    - text: 请问预约哪种空间？例如自习座位、研讨间、静音阅览区。
+  utter_ask_time_slot:
+    - text: 请问希望的时间段？例如「本周五下午」或「明天上午」。
+
+  utter_ask_borrow_confirm:
+    - text: 确认借阅《{book_title}》（索书号 {call_number}）吗？
+  utter_ask_borrow_confirm_then_no:
+    - text: 好的，已取消本次确认，请重新说明借阅需求。
+  utter_ask_borrow_confirm_then_yes:
+    - text: 正在为您提交借阅请求（演示）……
+  utter_api_borrow_succeed_true:
+    - text: 借阅请求处理成功（演示）。请到借还台取书或留意到期提醒。
+  utter_api_borrow_succeed_false:
+    - text: 借阅未通过（演示），可能为馆藏不可借或信息不符，请核对书名与索书号后再试。
+
+  utter_ask_return_confirm:
+    - text: 确认归还《{book_title}》（索书号 {call_number}）吗？
+  utter_ask_return_confirm_then_no:
+    - text: 好的，已取消归还确认。
+  utter_ask_return_confirm_then_yes:
+    - text: 正在为您办理归还（演示）……
+  utter_api_return_succeed_true:
+    - text: 归还成功（演示），感谢您的按时还书。
+  utter_api_return_succeed_false:
+    - text: 归还未通过（演示），请确认图书与读者证信息。
+
+  utter_ask_space_confirm:
+    - text: 确认预约「{room_type}」在「{time_slot}」吗？
+  utter_ask_space_confirm_then_no:
+    - text: 好的，已取消预约确认。
+  utter_ask_space_confirm_then_yes:
+    - text: 正在提交空间预约（演示）……
+  utter_api_space_succeed_true:
+    - text: 预约成功（演示）。请按预约时段到场，如需取消请提前在系统或服务台办理。
+  utter_api_space_succeed_false:
+    - text: 预约未通过（演示），可能为时段冲突或类型不可用，请更换时段或空间类型。
+
+actions:
+  - utter_greet
+  - utter_goodbye
+  - utter_capabilities
+  - utter_default
+  - utter_borrow_guide
+  - utter_data_inquiry
+  - utter_ask_book_title
+  - utter_ask_call_number
+  - utter_ask_room_type
+  - utter_ask_time_slot
+  - respond_faq
+
+  - validate_borrow_book_form
+  - action_borrow_book_form_submit
+  - action_borrow_book
+  - utter_ask_borrow_confirm
+  - utter_ask_borrow_confirm_then_no
+  - utter_ask_borrow_confirm_then_yes
+  - utter_api_borrow_succeed_true
+  - utter_api_borrow_succeed_false
+
+  - validate_return_book_form
+  - action_return_book_form_submit
+  - action_return_book
+  - utter_ask_return_confirm
+  - utter_ask_return_confirm_then_no
+  - utter_ask_return_confirm_then_yes
+  - utter_api_return_succeed_true
+  - utter_api_return_succeed_false
+
+  - validate_space_booking_form
+  - action_space_booking_form_submit
+  - action_space_booking
+  - utter_ask_space_confirm
+  - utter_ask_space_confirm_then_no
+  - utter_ask_space_confirm_then_yes
+  - utter_api_space_succeed_true
+  - utter_api_space_succeed_false
+
+  - action_reading_recommend
+
+session_config:
+  session_expiration_time: 0
+  carry_over_slots_to_new_session: true

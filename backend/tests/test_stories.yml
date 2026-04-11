@@ -1,0 +1,30 @@
+version: "3.1"
+
+stories:
+  - story: greet path
+    steps:
+      - user: |
+          你好
+        intent: greet
+      - action: utter_greet
+
+  - story: goodbye path
+    steps:
+      - user: |
+          再见
+        intent: goodbye
+      - action: utter_goodbye
+
+  - story: borrow guide
+    steps:
+      - user: |
+          怎么借书
+        intent: borrow_guide
+      - action: utter_borrow_guide
+
+  - story: data inquiry
+    steps:
+      - user: |
+          借阅量统计
+        intent: data_inquiry
+      - action: utter_data_inquiry

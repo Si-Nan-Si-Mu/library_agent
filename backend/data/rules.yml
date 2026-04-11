@@ -1,0 +1,60 @@
+version: "3.1"
+
+rules:
+  - rule: 问候
+    steps:
+      - intent: greet
+      - action: utter_greet
+
+  - rule: 告别
+    steps:
+      - intent: goodbye
+      - action: utter_goodbye
+
+  - rule: 能做什么
+    steps:
+      - intent: ask_capabilities
+      - action: utter_capabilities
+
+  - rule: NLU 置信度不足时兜底
+    steps:
+      - intent: nlu_fallback
+      - action: utter_default
+
+  - rule: FAQ
+    steps:
+      - intent: faq
+      - action: utter_faq
+
+  - rule: 借阅指引
+    steps:
+      - intent: borrow_guide
+      - action: utter_borrow_guide
+
+  - rule: 数据类咨询说明
+    steps:
+      - intent: data_inquiry
+      - action: utter_data_inquiry
+
+  - rule: 推荐阅读
+    steps:
+      - intent: reading_recommend
+      - action: action_reading_recommend
+
+  - rule: 激活借书表单
+    steps:
+      - intent: borrow_book
+      - action: borrow_book_form
+      - active_loop: borrow_book_form
+
+  - rule: 激活还书表单
+    steps:
+      - intent: return_book
+      - action: return_book_form
+      - active_loop: return_book_form
+
+  - rule: 激活空间预约表单
+    steps:
+      - intent: space_booking
+      - action: space_booking_form
+      - active_loop: space_booking_form

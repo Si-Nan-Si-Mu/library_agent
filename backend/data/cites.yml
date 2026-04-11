@@ -1,0 +1,11 @@
+version: "3.1"
+
+nlu:
+  - lookup: floor_zone
+    examples: |
+      - 三楼东侧
+      - 社科二库
+      - 自然科学书库
+      - 电子阅览室
+      - 研讨间A区
+      - 静音阅览区

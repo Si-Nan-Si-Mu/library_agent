@@ -1,0 +1,132 @@
+version: "3.1"
+
+stories:
+  - story: greet
+    steps:
+      - intent: greet
+      - action: utter_greet
+
+  - story: say goodbye
+    steps:
+      - intent: goodbye
+      - action: utter_goodbye
+
+  - story: borrow book form deny
+    steps:
+      - intent: borrow_book
+      - action: borrow_book_form
+      - active_loop: borrow_book_form
+      - intent: deny
+      - action: utter_ask_borrow_confirm_then_no
+
+  - story: borrow book success
+    steps:
+      - intent: borrow_book
+      - action: borrow_book_form
+      - active_loop: borrow_book_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_borrow_book_form_submit
+      - intent: affirm
+      - action: utter_ask_borrow_confirm_then_yes
+      - action: action_borrow_book
+      - slot_was_set:
+          - api_borrow_succeed: true
+      - action: utter_api_borrow_succeed_true
+
+  - story: borrow book failed
+    steps:
+      - intent: borrow_book
+      - action: borrow_book_form
+      - active_loop: borrow_book_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_borrow_book_form_submit
+      - intent: affirm
+      - action: utter_ask_borrow_confirm_then_yes
+      - action: action_borrow_book
+      - slot_was_set:
+          - api_borrow_succeed: false
+      - action: utter_api_borrow_succeed_false
+
+  - story: return book form deny
+    steps:
+      - intent: return_book
+      - action: return_book_form
+      - active_loop: return_book_form
+      - intent: deny
+      - action: utter_ask_return_confirm_then_no
+
+  - story: return book success
+    steps:
+      - intent: return_book
+      - action: return_book_form
+      - active_loop: return_book_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_return_book_form_submit
+      - intent: affirm
+      - action: utter_ask_return_confirm_then_yes
+      - action: action_return_book
+      - slot_was_set:
+          - api_return_succeed: true
+      - action: utter_api_return_succeed_true
+
+  - story: return book failed
+    steps:
+      - intent: return_book
+      - action: return_book_form
+      - active_loop: return_book_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_return_book_form_submit
+      - intent: affirm
+      - action: utter_ask_return_confirm_then_yes
+      - action: action_return_book
+      - slot_was_set:
+          - api_return_succeed: false
+      - action: utter_api_return_succeed_false
+
+  - story: space booking form deny
+    steps:
+      - intent: space_booking
+      - action: space_booking_form
+      - active_loop: space_booking_form
+      - intent: deny
+      - action: utter_ask_space_confirm_then_no
+
+  - story: space booking success
+    steps:
+      - intent: space_booking
+      - action: space_booking_form
+      - active_loop: space_booking_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_space_booking_form_submit
+      - intent: affirm
+      - action: utter_ask_space_confirm_then_yes
+      - action: action_space_booking
+      - slot_was_set:
+          - api_space_book_succeed: true
+      - action: utter_api_space_succeed_true
+
+  - story: space booking failed
+    steps:
+      - intent: space_booking
+      - action: space_booking_form
+      - active_loop: space_booking_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_space_booking_form_submit
+      - intent: affirm
+      - action: utter_ask_space_confirm_then_yes
+      - action: action_space_booking
+      - slot_was_set:
+          - api_space_book_succeed: false
+      - action: utter_api_space_succeed_false

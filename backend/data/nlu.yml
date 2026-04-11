@@ -1,0 +1,125 @@
+version: "3.1"
+
+nlu:
+  - intent: greet
+    examples: |
+      - 你好
+      - 您好
+      - 在吗
+      - hi
+      - hello
+
+  - intent: goodbye
+    examples: |
+      - 再见
+      - 拜拜
+      - 结束对话
+      - 退出
+
+  - intent: ask_capabilities
+    examples: |
+      - 你能做什么
+      - 有什么功能
+      - 我能干什么
+
+  - intent: affirm
+    examples: |
+      - 好的
+      - 是
+      - 确定
+      - 可以
+      - 没错
+
+  - intent: deny
+    examples: |
+      - 不
+      - 不要
+      - 取消
+      - 算了
+
+  - intent: borrow_guide
+    examples: |
+      - 怎么借书
+      - 借书流程
+      - 如何办理借阅
+      - 借书要注意什么
+      - 第一次去图书馆怎么借书
+      - [社科二库](floor_zone)怎么走
+      - 书在[自然科学书库](floor_zone)吗
+
+  - intent: data_inquiry
+    examples: |
+      - 图书馆借阅量是多少
+      - 去年借了多少本书
+      - 馆藏统计
+      - 借阅趋势数据
+      - 开放数据
+
+  - intent: reading_recommend
+    examples: |
+      - 推荐几本书
+      - 有没有关于[人工智能](topic)的书单
+      - 想读点[历史](topic)方面的书
+      - 给我推荐[文学](topic)类图书
+      - 最近有什么好书
+
+  - intent: borrow_book
+    examples: |
+      - 我要借书
+      - 帮我借一本书
+      - 办理借阅
+      - 我想借[红楼梦](book_title)
+      - 借一本索书号是[I247.5/88](call_number)的书
+
+  - intent: return_book
+    examples: |
+      - 我要还书
+      - 办理归还
+      - 还一本[西游记](book_title)
+      - 归还索书号[TP312/102](call_number)
+
+  - intent: space_booking
+    examples: |
+      - 预约研讨间
+      - 我要预约座位
+      - 订一个[研讨间](room_type)
+      - 想预约[明天下午](time_slot)的自习
+
+  - intent: faq/ask_open_hours
+    examples: |
+      - 图书馆几点开门
+      - 开馆时间
+      - 闭馆吗
+      - 周末开放吗
+      - 现在开馆吗
+
+  - intent: faq/ask_borrow_rules
+    examples: |
+      - 借阅规则
+      - 能借几本书
+      - 借期多久
+      - 续借怎么办理
+
+  - intent: faq/ask_quiet_zone
+    examples: |
+      - 静音区在哪
+      - 哪里不能说话
+      - 静音阅览室
+
+  - intent: faq/ask_wifi
+    examples: |
+      - 有无线网吗
+      - wifi怎么连
+      - 网络怎么用
+
+  - intent: faq/ask_return_deadline
+    examples: |
+      - 什么时候还书
+      - 还书日期怎么查
+      - 超期了怎么办
+
+  - intent: faq/ask_seat_rules
+    examples: |
+      - 自习占座规则
+      - 座位可以占多久
+      - 离开座位要注意什么

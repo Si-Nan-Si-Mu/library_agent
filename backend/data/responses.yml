@@ -1,0 +1,19 @@
+version: "3.1"
+responses:
+  utter_faq/ask_open_hours:
+    - text: 本馆开放时间（演示）：周一至周日 8:00–22:00；法定假日以馆方通知为准。入馆请刷卡或登记。
+
+  utter_faq/ask_borrow_rules:
+    - text: 借阅规则（演示）：本科生可借册数与期限以读者手册为准；请按时归还以免产生滞纳金；预约图书到馆后请在保留期内取书。
+
+  utter_faq/ask_quiet_zone:
+    - text: 静音区位于三楼东侧，请关闭外放与铃声，交谈请移步讨论区或研讨间预约区域。
+
+  utter_faq/ask_wifi:
+    - text: 馆内提供校园网 Wi-Fi，连接方式请见桌面立牌或咨询台；演示环境不提供真实账号密码。
+
+  utter_faq/ask_return_deadline:
+    - text: 还书日期可在读者证账户或自助借还机查询；续借请在到期前通过网上图书馆或柜台办理（演示说明）。
+
+  utter_faq/ask_seat_rules:
+    - text: 自习座位请勿占座超过 30 分钟无人；离开时请带走个人物品，配合保洁与安全管理。
