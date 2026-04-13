@@ -19,6 +19,7 @@ intents:
   - reading_recommend:
       use_entities: []
   - data_inquiry
+  - book_overview
 
 entities:
   - book_title
@@ -47,12 +48,64 @@ slots:
     mappings:
       - type: custom
 
+  last_borrow_detail:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: custom
+
+  last_return_detail:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: custom
+
+  borrow_phase:
+    type: categorical
+    influence_conversation: true
+    values:
+      - idle
+      - single_confirm
+      - multi_pick
+      - empty
+    initial_value: idle
+    mappings:
+      - type: custom
+
+  return_phase:
+    type: categorical
+    influence_conversation: true
+    values:
+      - idle
+      - single_confirm
+      - multi_pick
+      - empty
+    initial_value: idle
+    mappings:
+      - type: custom
+
+  defer_nlu_fallback:
+    type: bool
+    influence_conversation: true
+    initial_value: false
+    mappings:
+      - type: custom
+
   book_title:
     type: text
     influence_conversation: false
     mappings:
       - type: from_entity
         entity: book_title
+      # 填表时整句作书名（避免纯文字书名被标成 nlu_fallback 后无法入槽）
+      - type: from_text
+        conditions:
+          - active_loop: borrow_book_form
+            requested_slot: book_title
+      - type: from_text
+        conditions:
+          - active_loop: return_book_form
+            requested_slot: book_title
 
   call_number:
     type: text
@@ -60,6 +113,15 @@ slots:
     mappings:
       - type: from_entity
         entity: call_number
+      # 索书号常为数字/字母组合，NLU 易判为 nlu_fallback；用整句填槽
+      - type: from_text
+        conditions:
+          - active_loop: borrow_call_form
+            requested_slot: call_number
+      - type: from_text
+        conditions:
+          - active_loop: return_call_form
+            requested_slot: call_number
 
   room_type:
     type: text
@@ -87,6 +149,18 @@ forms:
   borrow_book_form:
     required_slots:
       - book_title
+    ignored_intents:
+      - greet
+      - goodbye
+      - ask_capabilities
+      - borrow_guide
+      - reading_recommend
+      - space_booking
+      - return_book
+      - faq
+
+  borrow_call_form:
+    required_slots:
       - call_number
     ignored_intents:
       - greet
@@ -98,11 +172,22 @@ forms:
       - space_booking
       - return_book
       - faq
-      - nlu_fallback
 
   return_book_form:
     required_slots:
       - book_title
+    ignored_intents:
+      - greet
+      - goodbye
+      - ask_capabilities
+      - borrow_guide
+      - reading_recommend
+      - space_booking
+      - borrow_book
+      - faq
+
+  return_call_form:
+    required_slots:
       - call_number
     ignored_intents:
       - greet
@@ -114,7 +199,6 @@ forms:
       - space_booking
       - borrow_book
       - faq
-      - nlu_fallback
 
   space_booking_form:
     required_slots:
@@ -130,7 +214,6 @@ forms:
       - borrow_book
       - return_book
       - faq
-      - nlu_fallback
 
 responses:
   utter_default:
@@ -145,13 +228,19 @@ responses:
   utter_borrow_guide:
     - text: "借书一般流程：① 在目录或检索机查询书目与索书号；② 到对应书库取书；③ 持读者证在借还台办理借阅。演示环境未对接真实 OPAC，具体以馆方系统为准。"
 
+  utter_borrow_query_done_hint:
+    - text: "已按书名查过在架情况。若要换书名再查，请再说一次「借书」；也可以说还书、预约、推荐阅读等。"
+
+  utter_return_query_done_hint:
+    - text: "已按书名查过待还记录。若要换书名再查，请再说一次「还书」；也可以说借书、预约等。"
+
   utter_data_inquiry:
     - text: "涉及馆藏统计、借阅趋势等数据，演示助手不返回精确数字；正式环境需对接报表 API 并做权限与审计。您可先说明想了解的指标类型与时间范围。"
 
   utter_ask_book_title:
     - text: 请问要办理的书名是？
   utter_ask_call_number:
-    - text: 请问索书号（或条码号）是？
+    - text: 请回复上方列表中的索书号（或条码号），也可以直接回复序号（如「1」「第2本」）。
 
   utter_ask_room_type:
     - text: 请问预约哪种空间？例如自习座位、研讨间、静音阅览区。
@@ -165,9 +254,9 @@ responses:
   utter_ask_borrow_confirm_then_yes:
     - text: 正在为您提交借阅请求（演示）……
   utter_api_borrow_succeed_true:
-    - text: 借阅请求处理成功（演示）。请到借还台取书或留意到期提醒。
+    - text: "{last_borrow_detail}"
   utter_api_borrow_succeed_false:
-    - text: 借阅未通过（演示），可能为馆藏不可借或信息不符，请核对书名与索书号后再试。
+    - text: "{last_borrow_detail}"
 
   utter_ask_return_confirm:
     - text: 确认归还《{book_title}》（索书号 {call_number}）吗？
@@ -176,9 +265,9 @@ responses:
   utter_ask_return_confirm_then_yes:
     - text: 正在为您办理归还（演示）……
   utter_api_return_succeed_true:
-    - text: 归还成功（演示），感谢您的按时还书。
+    - text: "{last_return_detail}"
   utter_api_return_succeed_false:
-    - text: 归还未通过（演示），请确认图书与读者证信息。
+    - text: "{last_return_detail}"
 
   utter_ask_space_confirm:
     - text: 确认预约「{room_type}」在「{time_slot}」吗？
@@ -197,6 +286,8 @@ actions:
   - utter_capabilities
   - utter_default
   - utter_borrow_guide
+  - utter_borrow_query_done_hint
+  - utter_return_query_done_hint
   - utter_data_inquiry
   - utter_ask_book_title
   - utter_ask_call_number
@@ -206,8 +297,9 @@ actions:
 
   - validate_borrow_book_form
   - action_borrow_book_form_submit
+  - validate_borrow_call_form
+  - action_borrow_call_form_submit
   - action_borrow_book
-  - utter_ask_borrow_confirm
   - utter_ask_borrow_confirm_then_no
   - utter_ask_borrow_confirm_then_yes
   - utter_api_borrow_succeed_true
@@ -215,8 +307,9 @@ actions:
 
   - validate_return_book_form
   - action_return_book_form_submit
+  - validate_return_call_form
+  - action_return_call_form_submit
   - action_return_book
-  - utter_ask_return_confirm
   - utter_ask_return_confirm_then_no
   - utter_ask_return_confirm_then_yes
   - utter_api_return_succeed_true
@@ -232,6 +325,7 @@ actions:
   - utter_api_space_succeed_false
 
   - action_reading_recommend
+  - action_book_overview
 
 session_config:
   # 0 表示会话永不过期，同一 sender 会长期保留 active_loop，表现为「每条回复后都追问预约空间」。

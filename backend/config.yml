@@ -50,7 +50,7 @@ pipeline:
 
   # 低置信度兜底，避免 REST 返回空消息列表
   - name: FallbackClassifier
-    threshold: 0.45
+    threshold: 0.35
     ambiguity_threshold: 0.1
 
 

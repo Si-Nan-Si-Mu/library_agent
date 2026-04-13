@@ -86,6 +86,30 @@ stories:
         intent: space_booking
       - action: space_booking_form
 
+  - story: borrow call pick by order text
+    steps:
+      - slot_was_set:
+          - borrow_phase: multi_pick
+          - defer_nlu_fallback: true
+      - action: borrow_call_form
+      - active_loop: borrow_call_form
+      - user: |
+          第2本
+        intent: nlu_fallback
+      - action: borrow_call_form
+
+  - story: return call pick by order number
+    steps:
+      - slot_was_set:
+          - return_phase: multi_pick
+          - defer_nlu_fallback: true
+      - action: return_call_form
+      - active_loop: return_call_form
+      - user: |
+          1
+        intent: nlu_fallback
+      - action: return_call_form
+
   - story: faq open hours
     steps:
       - user: |

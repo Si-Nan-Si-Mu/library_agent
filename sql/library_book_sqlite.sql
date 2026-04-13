@@ -1,4 +1,4 @@
--- SQLite 馆藏书目表（与 Action 中 library_db 结构一致；亦可仅用 Python 首次自动建表+种子）
+-- SQLite 馆藏书目表（与 `actions/library_db.py` 一致）。生产数据建议由应用自动补全（≥120 条）；本脚本仅含表结构与少量 INSERT OR IGNORE 示例。
 -- 使用：sqlite3 backend/data/library.db < sql/library_book_sqlite.sql
 -- 或：在 backend 目录 sqlite3 data/library.db < ../sql/library_book_sqlite.sql
 

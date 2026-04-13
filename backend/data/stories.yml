@@ -21,6 +21,62 @@ stories:
       - intent: deny
       - action: utter_ask_borrow_confirm_then_no
 
+  - story: borrow call form deny
+    steps:
+      - intent: borrow_book
+      - action: borrow_book_form
+      - active_loop: borrow_book_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_borrow_book_form_submit
+      - slot_was_set:
+          - borrow_phase: multi_pick
+          - defer_nlu_fallback: true
+      - action: borrow_call_form
+      - active_loop: borrow_call_form
+      - intent: deny
+      - action: utter_ask_borrow_confirm_then_no
+
+  - story: borrow confirm deny after title
+    steps:
+      - intent: borrow_book
+      - action: borrow_book_form
+      - active_loop: borrow_book_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_borrow_book_form_submit
+      - slot_was_set:
+          - borrow_phase: single_confirm
+      - intent: deny
+      - action: utter_ask_borrow_confirm_then_no
+
+  - story: borrow call confirm deny
+    steps:
+      - intent: borrow_book
+      - action: borrow_book_form
+      - active_loop: borrow_book_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_borrow_book_form_submit
+      - slot_was_set:
+          - borrow_phase: multi_pick
+          - defer_nlu_fallback: true
+      - action: borrow_call_form
+      - active_loop: borrow_call_form
+      - user: |
+          TP311.5/PY-01
+        intent: nlu_fallback
+      - active_loop: borrow_call_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_borrow_call_form_submit
+      - intent: deny
+      - action: utter_ask_borrow_confirm_then_no
+
   - story: borrow book success
     steps:
       - intent: borrow_book
@@ -30,6 +86,8 @@ stories:
       - slot_was_set:
           - requested_slot: null
       - action: action_borrow_book_form_submit
+      - slot_was_set:
+          - borrow_phase: single_confirm
       - intent: affirm
       - action: utter_ask_borrow_confirm_then_yes
       - action: action_borrow_book
@@ -46,6 +104,66 @@ stories:
       - slot_was_set:
           - requested_slot: null
       - action: action_borrow_book_form_submit
+      - slot_was_set:
+          - borrow_phase: single_confirm
+      - intent: affirm
+      - action: utter_ask_borrow_confirm_then_yes
+      - action: action_borrow_book
+      - slot_was_set:
+          - api_borrow_succeed: false
+      - action: utter_api_borrow_succeed_false
+
+  - story: borrow pick call then success
+    steps:
+      - intent: borrow_book
+      - action: borrow_book_form
+      - active_loop: borrow_book_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_borrow_book_form_submit
+      - slot_was_set:
+          - borrow_phase: multi_pick
+          - defer_nlu_fallback: true
+      - action: borrow_call_form
+      - active_loop: borrow_call_form
+      - user: |
+          TP311.5/PY-01
+        intent: nlu_fallback
+      - active_loop: borrow_call_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_borrow_call_form_submit
+      - intent: affirm
+      - action: utter_ask_borrow_confirm_then_yes
+      - action: action_borrow_book
+      - slot_was_set:
+          - api_borrow_succeed: true
+      - action: utter_api_borrow_succeed_true
+
+  - story: borrow pick call then failed
+    steps:
+      - intent: borrow_book
+      - action: borrow_book_form
+      - active_loop: borrow_book_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_borrow_book_form_submit
+      - slot_was_set:
+          - borrow_phase: multi_pick
+          - defer_nlu_fallback: true
+      - action: borrow_call_form
+      - active_loop: borrow_call_form
+      - user: |
+          TP311.5/PY-01
+        intent: nlu_fallback
+      - active_loop: borrow_call_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_borrow_call_form_submit
       - intent: affirm
       - action: utter_ask_borrow_confirm_then_yes
       - action: action_borrow_book
@@ -61,6 +179,62 @@ stories:
       - intent: deny
       - action: utter_ask_return_confirm_then_no
 
+  - story: return call form deny
+    steps:
+      - intent: return_book
+      - action: return_book_form
+      - active_loop: return_book_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_return_book_form_submit
+      - slot_was_set:
+          - return_phase: multi_pick
+          - defer_nlu_fallback: true
+      - action: return_call_form
+      - active_loop: return_call_form
+      - intent: deny
+      - action: utter_ask_return_confirm_then_no
+
+  - story: return confirm deny after title
+    steps:
+      - intent: return_book
+      - action: return_book_form
+      - active_loop: return_book_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_return_book_form_submit
+      - slot_was_set:
+          - return_phase: single_confirm
+      - intent: deny
+      - action: utter_ask_return_confirm_then_no
+
+  - story: return call confirm deny
+    steps:
+      - intent: return_book
+      - action: return_book_form
+      - active_loop: return_book_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_return_book_form_submit
+      - slot_was_set:
+          - return_phase: multi_pick
+          - defer_nlu_fallback: true
+      - action: return_call_form
+      - active_loop: return_call_form
+      - user: |
+          B-XYJ-002
+        intent: nlu_fallback
+      - active_loop: return_call_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_return_call_form_submit
+      - intent: deny
+      - action: utter_ask_return_confirm_then_no
+
   - story: return book success
     steps:
       - intent: return_book
@@ -70,6 +244,8 @@ stories:
       - slot_was_set:
           - requested_slot: null
       - action: action_return_book_form_submit
+      - slot_was_set:
+          - return_phase: single_confirm
       - intent: affirm
       - action: utter_ask_return_confirm_then_yes
       - action: action_return_book
@@ -86,6 +262,66 @@ stories:
       - slot_was_set:
           - requested_slot: null
       - action: action_return_book_form_submit
+      - slot_was_set:
+          - return_phase: single_confirm
+      - intent: affirm
+      - action: utter_ask_return_confirm_then_yes
+      - action: action_return_book
+      - slot_was_set:
+          - api_return_succeed: false
+      - action: utter_api_return_succeed_false
+
+  - story: return pick call then success
+    steps:
+      - intent: return_book
+      - action: return_book_form
+      - active_loop: return_book_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_return_book_form_submit
+      - slot_was_set:
+          - return_phase: multi_pick
+          - defer_nlu_fallback: true
+      - action: return_call_form
+      - active_loop: return_call_form
+      - user: |
+          B-XYJ-002
+        intent: nlu_fallback
+      - active_loop: return_call_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_return_call_form_submit
+      - intent: affirm
+      - action: utter_ask_return_confirm_then_yes
+      - action: action_return_book
+      - slot_was_set:
+          - api_return_succeed: true
+      - action: utter_api_return_succeed_true
+
+  - story: return pick call then failed
+    steps:
+      - intent: return_book
+      - action: return_book_form
+      - active_loop: return_book_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_return_book_form_submit
+      - slot_was_set:
+          - return_phase: multi_pick
+          - defer_nlu_fallback: true
+      - action: return_call_form
+      - active_loop: return_call_form
+      - user: |
+          B-XYJ-002
+        intent: nlu_fallback
+      - active_loop: return_call_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_return_call_form_submit
       - intent: affirm
       - action: utter_ask_return_confirm_then_yes
       - action: action_return_book
@@ -132,3 +368,9 @@ stories:
       - slot_was_set:
           - api_space_book_succeed: false
       - action: utter_api_space_succeed_false
+
+  - story: book overview
+    steps:
+      - intent: book_overview
+      - action: action_deactivate_loop
+      - action: action_book_overview
