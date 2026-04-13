@@ -2,6 +2,30 @@
 
 基于 [Rasa](https://rasa.com/) 的中文**图书馆智能对话助手**（演示）：借还书、借阅指引、空间预约、推荐阅读、数据咨询话术、馆规 FAQ 等；书目借还与推荐阅读使用 **SQLite** 演示库（见 `backend/actions/library_db.py`）。
 
+## 项目简介
+
+- 后端基于 `Rasa + rasa-sdk`，实现借书、还书、空间预约、FAQ、推荐阅读等多轮对话。
+- 数据层使用 `SQLite` 演示库，支持在架/已借状态切换与基础书目检索。
+- 前端为 Vue 聊天页，通过 REST webhook 对接 `Rasa API`。
+- 当前定位为演示与联调工程，可逐步扩展到真实 OPAC/流通/预约系统。
+
+## 目录结构（简版）
+
+```text
+library_agent/
+├── backend/                 # Rasa 工程（domain/data/actions/config）
+│   ├── actions/             # 自定义 Action 与 SQLite 访问逻辑
+│   ├── data/                # NLU、rules、stories、responses、词典
+│   ├── tests/               # 对话回归测试数据
+│   ├── config.yml           # NLU pipeline 与 policy
+│   ├── domain.yml           # 意图/实体/槽位/表单/回复
+│   └── start_*.ps1          # Windows 启动脚本（Rasa/Action）
+├── front/lib_agent_vue/     # Vue 对话前端
+├── docs/                    # 操作指引、改造说明
+├── sql/                     # SQLite / MySQL 参考脚本
+└── README.md                # 项目入口文档
+```
+
 | 文档 | 说明 |
 | ---- | ---- |
 | [**docs/操作指引.md**](docs/操作指引.md) | Windows + Conda、双终端启动 Rasa / Action、Vue 与 Webhook、常见问题 |
