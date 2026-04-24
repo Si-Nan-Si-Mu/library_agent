@@ -1,2 +1,6 @@
 .vscode/
 **/.DS_Store
+.env
+**/__pycache__/
+*.py[cod]
+library_rag_backend/models/*.tar.gz
