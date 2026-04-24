@@ -1,5 +1,13 @@
+import json
 import re
 from typing import Any, Text, Dict, List, Optional
+
+try:
+    from kg_module.env_bootstrap import load_repo_dotenv
+
+    load_repo_dotenv()
+except Exception:
+    pass
 
 from .library_db import (
     borrow_book,
@@ -12,10 +20,26 @@ from .library_db import (
     return_book,
 )
 
-from rasa_sdk import Action, Tracker
-from rasa_sdk.executor import CollectingDispatcher
-from rasa_sdk.events import SlotSet, AllSlotsReset, ActiveLoop
-from rasa_sdk.forms import FormValidationAction
+from rasa_sdk import Action, Tracker  # type: ignore[reportMissingImports]
+from rasa_sdk.events import SlotSet, AllSlotsReset, ActiveLoop, FollowupAction  # type: ignore[reportMissingImports]
+from rasa_sdk.forms import FormValidationAction  # type: ignore[reportMissingImports]
+
+try:
+    from rasa_sdk.executor import CollectingDispatcher  # type: ignore[reportMissingImports]
+except Exception:  # pragma: no cover - fallback for IDE/static analysis env
+    CollectingDispatcher = Any
+
+from .deepseek_client import deepseek_chat
+from .neo4j_graph import recommend_books_by_topic as neo4j_recommend_by_topic
+
+_DATA_INQUIRY_SYSTEM = (
+    "你是高校图书馆智能助手（演示环境）。用户会做开放数据、统计口径、借阅趋势类、推荐阅读等类别的提问。"
+    "你只提供一般性方法、概念说明与合规注意点；不得编造具体的借阅量、百分比、排名等数字。"
+    "若需要精确数据，应引导对方通过馆方 OPAC、报表系统或经授权的统计服务查询，并提及权限与审计要求。"
+    "或者使用sql语句查询图书馆的sqlite数据库，然后根据查询结果回答用户的问题。"
+    "回答使用用户相对熟悉的语言，条理清晰，篇幅适中。"
+    "不要使用任何括号表示情绪或动作。"
+)
 
 
 def _normalize_title_from_text(text: Any) -> str:
@@ -33,6 +57,46 @@ def _normalize_title_from_text(text: Any) -> str:
     for p in ["吗", "呢", "呀", "吧", "啊", "，", "。", "？", "！", ",", ".", "?", "!"]:
         raw = raw.replace(p, " ")
     return " ".join(raw.split())
+
+
+def _is_demo_book_reference(text: Any) -> bool:
+    raw = (str(text or "")).strip()
+    if not raw:
+        return False
+    keys = (
+        "这本",
+        "那本",
+        "就这本",
+        "就那本",
+        "借这本",
+        "借那本",
+        "那就借这本",
+        "那就借这一本",
+        "借它",
+        "就它",
+    )
+    return any(k in raw for k in keys)
+
+
+def _pick_recommended_title_from_text(text: Any, candidates_raw: Any) -> Optional[str]:
+    raw = (str(text or "")).strip()
+    if not raw:
+        return None
+    try:
+        candidates = json.loads(str(candidates_raw or "[]"))
+    except Exception:
+        candidates = []
+    if not isinstance(candidates, list):
+        return None
+    titles = [str(x).strip() for x in candidates if str(x).strip()]
+    if not titles:
+        return None
+    m = re.search(r"第\s*(\d{1,2})\s*(?:本|条|个)", raw)
+    if m:
+        idx = int(m.group(1))
+        if 1 <= idx <= len(titles):
+            return titles[idx - 1]
+    return None
 
 
 def _normalize_call_input(raw: Any) -> str:
@@ -71,10 +135,20 @@ class ValidateBorrowBookForm(FormValidationAction):
         tracker: Tracker,
         domain: Dict[Text, Any],
     ) -> Dict[Text, Any]:
+        latest_text = tracker.latest_message.get("text") or ""
+        picked_from_rec = _pick_recommended_title_from_text(
+            latest_text, tracker.get_slot("last_recommended_candidates")
+        )
+        if picked_from_rec:
+            return {"book_title": picked_from_rec}
+        if _is_demo_book_reference(latest_text):
+            remembered = (tracker.get_slot("last_recommended_title") or "").strip()
+            if remembered:
+                return {"book_title": remembered}
         title = _normalize_title_from_text(slot_value) if slot_value else ""
         if title:
             return {"book_title": title}
-        latest = _normalize_title_from_text(tracker.latest_message.get("text"))
+        latest = _normalize_title_from_text(latest_text)
         if not latest:
             return {"book_title": None}
         rows = list_on_shelf_by_title(latest, limit=1)
@@ -103,6 +177,7 @@ class ActionBorrowBookFormSubmit(Action):
                 SlotSet("call_number", None),
                 SlotSet("book_title", None),
                 ActiveLoop(None),
+                FollowupAction("action_listen"),
             ]
 
         if len(rows) == 1:
@@ -122,6 +197,7 @@ class ActionBorrowBookFormSubmit(Action):
                 SlotSet("borrow_phase", "single_confirm"),
                 SlotSet("defer_nlu_fallback", False),
                 SlotSet("call_number", call_no),
+                FollowupAction("action_listen"),
             ]
 
         lines = [
@@ -140,6 +216,7 @@ class ActionBorrowBookFormSubmit(Action):
             SlotSet("defer_nlu_fallback", True),
             SlotSet("call_number", None),
             ActiveLoop("borrow_call_form"),
+            FollowupAction("action_listen"),
         ]
 
 
@@ -209,6 +286,7 @@ class ActionBorrowCallFormSubmit(Action):
                 SlotSet("call_number", None),
                 SlotSet("book_title", None),
                 ActiveLoop(None),
+                FollowupAction("action_listen"),
             ]
         dispatcher.utter_message(text=format_on_shelf_borrow_preview(row))
         dispatcher.utter_message(
@@ -284,6 +362,7 @@ class ActionReturnBookFormSubmit(Action):
                 SlotSet("call_number", None),
                 SlotSet("book_title", None),
                 ActiveLoop(None),
+                FollowupAction("action_listen"),
             ]
 
         if len(rows) == 1:
@@ -499,6 +578,33 @@ class ActionReadingRecommend(Action):
         domain: Dict[Text, Any],
     ) -> List[Dict[Text, Any]]:
         topic = (tracker.get_slot("topic") or "").strip()
+        if topic:
+            graph_rows = neo4j_recommend_by_topic(topic, limit=8)
+            if graph_rows:
+                lines = []
+                for r in graph_rows:
+                    rating = r.get("rating")
+                    rate_s = f"{rating}" if rating is not None else "-"
+                    sm = (r.get("summary") or "").strip()
+                    extra = f" — {sm}" if sm else ""
+                    lines.append(f"《{r['title']}》（评分 {rate_s}）{extra}")
+                dispatcher.utter_message(
+                    text=(
+                        f"根据知识图谱（Neo4j）与主题「{topic}」的匹配结果（演示数据）：\n"
+                        + "\n".join(lines)
+                        + "\n可直接回复「借这本」或书名继续办理借阅。具体以 OPAC 与正式馆藏目录为准。"
+                    )
+                )
+                top = graph_rows[0]
+                return [
+                    SlotSet("last_recommended_title", (top.get("title") or "").strip() or None),
+                    SlotSet("last_recommended_call_number", (top.get("book_key") or "").strip() or None),
+                    SlotSet(
+                        "last_recommended_candidates",
+                        json.dumps([str(x.get("title") or "").strip() for x in graph_rows if str(x.get("title") or "").strip()], ensure_ascii=False),
+                    ),
+                ]
+
         rows = recommend_on_shelf(topic or None)
         if topic and rows:
             lines = [
@@ -509,9 +615,18 @@ class ActionReadingRecommend(Action):
                 text=(
                     f"与「{topic}」匹配的在架书目（SQLite 演示库，仅供参考）：\n"
                     + "\n".join(lines)
-                    + "\n具体以 OPAC 为准。"
+                    + "\n可直接回复「借这本」或书名继续办理借阅。具体以 OPAC 为准。"
                 )
             )
+            top = rows[0]
+            return [
+                SlotSet("last_recommended_title", top["lib_book"]),
+                SlotSet("last_recommended_call_number", top["book_key"]),
+                SlotSet(
+                    "last_recommended_candidates",
+                    json.dumps([str(x["lib_book"]).strip() for x in rows if str(x["lib_book"]).strip()], ensure_ascii=False),
+                ),
+            ]
         elif topic:
             dispatcher.utter_message(
                 text=(
@@ -519,6 +634,11 @@ class ActionReadingRecommend(Action):
                     "也可检索同类目新书区与主题书架。"
                 )
             )
+            return [
+                SlotSet("last_recommended_title", None),
+                SlotSet("last_recommended_call_number", None),
+                SlotSet("last_recommended_candidates", None),
+            ]
         else:
             dispatcher.utter_message(
                 text=(
@@ -526,7 +646,7 @@ class ActionReadingRecommend(Action):
                     "正式环境可对接推荐服务或热门借阅榜。"
                 )
             )
-        return []
+            return []
 
 
 class ActionBookOverview(Action):
@@ -557,4 +677,31 @@ class ActionBookOverview(Action):
                 + "\n如需按主题筛选，可继续说「推荐历史书」；如需借阅可直接说书名。"
             )
         )
+        return []
+
+
+class ActionDataInquiry(Action):
+    """数据类咨询：优先调用 DeepSeek 生成说明；未配置密钥或调用失败时回退到固定话术。"""
+
+    def name(self) -> Text:
+        return "action_data_inquiry"
+
+    def run(
+        self,
+        dispatcher: CollectingDispatcher,
+        tracker: Tracker,
+        domain: Dict[Text, Any],
+    ) -> List[Dict[Text, Any]]:
+        user_text = (tracker.latest_message.get("text") or "").strip()
+        if not user_text:
+            dispatcher.utter_message(response="utter_data_inquiry")
+            return []
+
+        content, _err = deepseek_chat(user_text, system=_DATA_INQUIRY_SYSTEM)
+        if not content:
+            dispatcher.utter_message(response="utter_data_inquiry")
+            return []
+
+        suffix = "（以上内容由大模型生成；演示环境无接入实时统计，请勿作为官方数据依据。）"
+        dispatcher.utter_message(text=f"{content}\n\n{suffix}")
         return []

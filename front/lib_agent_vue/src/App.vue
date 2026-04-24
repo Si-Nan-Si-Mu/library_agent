@@ -3,8 +3,8 @@
     <main class="card">
       <header class="header">
         <div>
-          <h1>Rasa 聊天助手</h1>
-          <p>Vue 前端可视化交互页面</p>
+          <h1>图书馆智能助手</h1>
+          <p>Vue 与 Rasa REST Webhook 联调</p>
         </div>
         <div class="header-controls">
           <div class="endpoint-box">
@@ -19,8 +19,45 @@
             <input v-model="debugLog" type="checkbox" @change="persistDebugLog" />
             <span>控制台调试（F12 → Console，前缀 [Rasa]）</span>
           </label>
+          <label class="debug-toggle">
+            <input
+              v-model="showJsonPanel"
+              type="checkbox"
+              @change="persistShowJsonPanel"
+            />
+            <span>页面内显示请求/响应 JSON</span>
+          </label>
+          <div class="json-actions">
+            <button type="button" class="btn-json" @click="downloadExchanges">
+              下载会话 JSON
+            </button>
+            <span v-if="exchanges.length" class="json-hint"
+              >已记录 {{ exchanges.length }} 轮</span
+            >
+          </div>
         </div>
       </header>
+
+      <section
+        v-show="showJsonPanel && exchanges.length"
+        class="json-debug-strip"
+        aria-label="Rasa 请求响应 JSON"
+      >
+        <p class="json-debug-title">各轮与后端的 JSON 交互（可展开）</p>
+        <div
+          v-for="(ex, idx) in exchanges"
+          :key="ex.id"
+          class="json-debug-turn"
+        >
+          <details>
+            <summary>
+              第 {{ idx + 1 }} 轮
+              <span class="json-debug-user-preview">{{ ex.userText }}</span>
+            </summary>
+            <pre class="json-pre">{{ formatExchangeJson(ex) }}</pre>
+          </details>
+        </div>
+      </section>
 
       <section ref="chatRef" class="chat-list">
         <div v-for="item in messages" :key="item.id" class="row" :class="item.role">
@@ -48,6 +85,7 @@
 const STORAGE_ENDPOINT_KEY = "rasa_endpoint";
 const STORAGE_SENDER_KEY = "rasa_sender_id";
 const STORAGE_DEBUG_KEY = "rasa_debug_log";
+const STORAGE_JSON_PANEL_KEY = "rasa_json_panel";
 
 export default {
   name: "App",
@@ -60,6 +98,10 @@ export default {
       senderId: "",
       /** 为 true 时在浏览器控制台输出请求/原始响应/解析后的 JSON，便于联调 */
       debugLog: true,
+      /** 在页面上显示每轮与后端的 JSON 交互 */
+      showJsonPanel: true,
+      /** 每轮一条：请求体、HTTP 元信息、原始响应、解析后数组或解析错误 */
+      exchanges: [],
     };
   },
   mounted() {
@@ -81,6 +123,11 @@ export default {
       this.debugLog = savedDebug === "true";
     }
 
+    const savedJsonPanel = localStorage.getItem(STORAGE_JSON_PANEL_KEY);
+    if (savedJsonPanel !== null) {
+      this.showJsonPanel = savedJsonPanel === "true";
+    }
+
     this.pushMessage("system", "欢迎使用 Rasa 可视化聊天页面。");
     this.pushMessage("system", "请先确保 Rasa 服务已启动并开启 CORS。");
     if (this.debugLog) {
@@ -93,6 +140,34 @@ export default {
   methods: {
     persistDebugLog() {
       localStorage.setItem(STORAGE_DEBUG_KEY, String(this.debugLog));
+    },
+    persistShowJsonPanel() {
+      localStorage.setItem(STORAGE_JSON_PANEL_KEY, String(this.showJsonPanel));
+    },
+    /**
+     * @param {Record<string, unknown>} ex
+     * @returns {string}
+     */
+    formatExchangeJson(ex) {
+      return JSON.stringify(ex, null, 2);
+    },
+    downloadExchanges() {
+      const pack = {
+        exportedAt: new Date().toISOString(),
+        client: "lib_agent_vue",
+        endpoint: this.endpoint,
+        senderId: this.senderId,
+        turns: this.exchanges,
+      };
+      const text = JSON.stringify(pack, null, 2);
+      const blob = new Blob([text], { type: "application/json;charset=utf-8" });
+      const fileName = `rasa-library-chat-${Date.now()}.json`;
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      this.logRasa("已下载 JSON", { fileName, turns: this.exchanges.length });
     },
     /**
      * @param {string} title
@@ -117,7 +192,8 @@ export default {
     },
     clearMessages() {
       this.messages = [];
-      this.pushMessage("system", "聊天记录已清空。");
+      this.exchanges = [];
+      this.pushMessage("system", "聊天记录与 JSON 调试记录已清空。");
     },
     pushMessage(role, text) {
       this.messages.push({
@@ -149,6 +225,20 @@ export default {
         message: userText,
       };
 
+      /** @type {Record<string, unknown>} */
+      const exchange = {
+        id: `${Date.now()}-${Math.random()}`,
+        at: new Date().toISOString(),
+        userText,
+        request: { url: this.endpoint, method: "POST", body: requestBody },
+        response: {
+          http: null,
+          rawText: null,
+          parsed: null,
+          parseError: null,
+        },
+      };
+
       try {
         this.logRasa("→ 请求", {
           url: this.endpoint,
@@ -167,6 +257,15 @@ export default {
         const rawText = await response.text();
         const contentType = response.headers.get("content-type") || "";
 
+        exchange.response.http = {
+          ok: response.ok,
+          status: response.status,
+          statusText: response.statusText,
+          contentType,
+          rawLength: rawText.length,
+        };
+        exchange.response.rawText = rawText;
+
         this.logRasa("← HTTP 元信息", {
           ok: response.ok,
           status: response.status,
@@ -177,6 +276,7 @@ export default {
         this.logRasa("← 响应体（原始字符串）", rawText);
 
         if (!response.ok) {
+          this.exchanges.push(exchange);
           this.pushMessage("system", `请求失败：HTTP ${response.status}`);
           this.logRasa("← 非 2xx，未解析为消息列表", { rawText });
           return;
@@ -185,7 +285,13 @@ export default {
         let data;
         try {
           data = rawText ? JSON.parse(rawText) : [];
+          exchange.response.parsed = data;
         } catch (parseErr) {
+          exchange.response.parseError = {
+            name: parseErr && parseErr.name ? parseErr.name : "Error",
+            message: parseErr && parseErr.message ? parseErr.message : String(parseErr),
+          };
+          this.exchanges.push(exchange);
           this.logRasa("← JSON.parse 失败", {
             message: parseErr.message,
             rawText,
@@ -193,6 +299,8 @@ export default {
           this.pushMessage("system", "响应不是合法 JSON，详情见控制台 [Rasa] 日志。");
           return;
         }
+
+        this.exchanges.push(exchange);
 
         this.logRasa("← 响应体（解析后）", data);
         if (this.debugLog && Array.isArray(data) && data.length) {
@@ -212,7 +320,7 @@ export default {
         if (!Array.isArray(data) || data.length === 0) {
           this.pushMessage(
             "bot",
-            "（暂无回复：后端返回空列表。请确认 Rasa 已加载模型；在 backend 执行 rasa train 后重启 API。F12→Network 可查看响应体。）"
+            "（暂无回复：后端返回空列表。请确认 Rasa 已加载模型；在 backend 执行 rasa train 后重启 API。可展开「页面内 JSON」或下载 JSON 查看完整响应。）"
           );
           return;
         }
@@ -233,6 +341,13 @@ export default {
           );
         }
       } catch (error) {
+        this.exchanges.push({
+          id: `${Date.now()}-${Math.random()}`,
+          at: new Date().toISOString(),
+          userText,
+          request: { url: this.endpoint, method: "POST", body: requestBody },
+          error: { message: error.message, name: error.name },
+        });
         this.logRasa("× fetch 异常", { message: error.message, stack: error.stack });
         this.pushMessage("system", `请求异常：${error.message}`);
       } finally {
@@ -315,6 +430,91 @@ body {
 
 .debug-toggle input {
   cursor: pointer;
+}
+
+.json-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.btn-json {
+  font-size: 12px;
+  padding: 6px 10px;
+  border: 1px solid #2563eb;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  cursor: pointer;
+}
+
+.btn-json:hover {
+  background: #dbeafe;
+}
+
+.json-hint {
+  font-size: 11px;
+  color: #98a2b3;
+}
+
+.json-debug-strip {
+  max-height: 36vh;
+  overflow-y: auto;
+  border-bottom: 1px solid #e7eaf0;
+  background: #f8fafc;
+  padding: 10px 14px;
+}
+
+.json-debug-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #475467;
+  font-weight: 600;
+}
+
+.json-debug-turn {
+  margin-bottom: 6px;
+}
+
+.json-debug-turn details {
+  font-size: 12px;
+  color: #344054;
+}
+
+.json-debug-turn summary {
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.json-debug-turn summary::-webkit-details-marker {
+  display: none;
+}
+
+.json-debug-user-preview {
+  margin-left: 8px;
+  color: #667085;
+  font-weight: normal;
+  max-width: 48vw;
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.json-pre {
+  margin: 8px 0 0;
+  padding: 10px;
+  background: #1e293b;
+  color: #e2e8f0;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-x: auto;
+  max-height: 28vh;
 }
 
 .endpoint-box input {

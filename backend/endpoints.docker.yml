@@ -1,0 +1,4 @@
+# Docker Compose 内 Rasa Core 访问 Action Server 时使用：
+#   rasa run ... --endpoints endpoints.docker.yml
+action_endpoint:
+  url: "http://actions:5055/webhook"

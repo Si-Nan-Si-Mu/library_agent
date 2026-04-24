@@ -1,0 +1,49 @@
+# 在仓库根目录执行：docker compose -f deploy/docker-compose.yml up --build
+# 或在 deploy 目录下：docker compose up --build
+#
+# 首次构建会执行 rasa train，耗时较长。对话前请在仓库根目录复制 .env.example 为 .env。
+# 图谱：推荐阅读优先查 Neo4j。默认带密码；无密码测试可在 .env 设 NEO4J_AUTH=none 与 NEO4J_AUTH_NONE=1。
+services:
+  neo4j:
+    image: neo4j:5-community
+    environment:
+      NEO4J_AUTH: ${NEO4J_AUTH:-neo4j/${NEO4J_PASSWORD:-libraryagent}}
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j_lib:/data
+
+  actions:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile.actions
+    env_file:
+      - ../.env
+    environment:
+      LIBRARY_SQLITE_PATH: /app/data/library.db
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+    volumes:
+      - library_agent_data:/app/data
+    ports:
+      - "5055:5055"
+    depends_on:
+      - neo4j
+
+  rasa:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile.rasa
+    env_file:
+      - ../.env
+    depends_on:
+      - actions
+    volumes:
+      - library_agent_data:/app/data
+    ports:
+      - "5005:5005"
+
+volumes:
+  library_agent_data:
+  neo4j_lib:

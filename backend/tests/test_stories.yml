@@ -31,7 +31,7 @@ stories:
           借阅量统计
         intent: data_inquiry
       - action: action_deactivate_loop
-      - action: utter_data_inquiry
+      - action: action_data_inquiry
 
   - story: ask capabilities short
     steps:

@@ -3,18 +3,24 @@ version: "3.1"
 rules:
   # 在问候、能力说明、兜底等规则前执行 action_deactivate_loop，避免与未结束的表单追问叠成两条 bot 消息。
   - rule: 问候
+    condition:
+      - active_loop: null
     steps:
       - intent: greet
       - action: action_deactivate_loop
       - action: utter_greet
 
   - rule: 告别
+    condition:
+      - active_loop: null
     steps:
       - intent: goodbye
       - action: action_deactivate_loop
       - action: utter_goodbye
 
   - rule: 能做什么
+    condition:
+      - active_loop: null
     steps:
       - intent: ask_capabilities
       - action: action_deactivate_loop
@@ -62,6 +68,23 @@ rules:
       - intent: nlu_fallback
       - action: utter_return_query_done_hint
 
+  # 表单追问槽位时，短句书名常被识别为 nlu_fallback：必须继续表单，不能掉到全局 utter_default。
+  - rule: 借书表单内 nlu_fallback 继续追问
+    condition:
+      - active_loop: borrow_book_form
+    steps:
+      - intent: nlu_fallback
+      - action: borrow_book_form
+      - active_loop: borrow_book_form
+
+  - rule: 还书表单内 nlu_fallback 继续追问
+    condition:
+      - active_loop: return_book_form
+    steps:
+      - intent: nlu_fallback
+      - action: return_book_form
+      - active_loop: return_book_form
+
   # 有活跃表单时勿抢答：否则用户填槽短句易被标成 nlu_fallback，整句走兜底并 deactivate_loop，预约流中断。
   # defer_nlu_fallback 为 true 时禁止本兜底；仅在借/还流程均处于 idle 时走默认兜底（避免与 empty 路径冲突）。
   - rule: NLU 置信度不足时兜底（无表单）
@@ -69,22 +92,22 @@ rules:
       - active_loop: null
       - slot_was_set:
           - defer_nlu_fallback: false
-      - slot_was_set:
-          - borrow_phase: idle
-      - slot_was_set:
-          - return_phase: idle
     steps:
       - intent: nlu_fallback
       - action: action_deactivate_loop
       - action: utter_default
 
   - rule: FAQ
+    condition:
+      - active_loop: null
     steps:
       - intent: faq
       - action: action_deactivate_loop
       - action: utter_faq
 
   - rule: 借阅指引
+    condition:
+      - active_loop: null
     steps:
       - intent: borrow_guide
       - action: action_deactivate_loop
@@ -96,7 +119,7 @@ rules:
     steps:
       - intent: data_inquiry
       - action: action_deactivate_loop
-      - action: utter_data_inquiry
+      - action: action_data_inquiry
 
   - rule: 推荐阅读
     condition:
@@ -137,3 +160,48 @@ rules:
       - intent: space_booking
       - action: space_booking_form
       - active_loop: space_booking_form
+
+  # 表单正常填完后，显式提交，避免策略未命中时掉到 action_default_fallback。
+  - rule: 提交借书表单
+    condition:
+      - active_loop: borrow_book_form
+    steps:
+      - action: borrow_book_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_borrow_book_form_submit
+    wait_for_user_input: false
+
+  - rule: 提交还书表单
+    condition:
+      - active_loop: return_book_form
+    steps:
+      - action: return_book_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_return_book_form_submit
+    wait_for_user_input: false
+
+  - rule: 提交借书索书号表单
+    condition:
+      - active_loop: borrow_call_form
+    steps:
+      - action: borrow_call_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_borrow_call_form_submit
+    wait_for_user_input: false
+
+  - rule: 提交还书索书号表单
+    condition:
+      - active_loop: return_call_form
+    steps:
+      - action: return_call_form
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_return_call_form_submit
+    wait_for_user_input: false

@@ -1,0 +1,9 @@
+.rasa
+__pycache__
+*.py[cod]
+*.tar.gz
+models/
+data/library.db
+.venv
+env
+.vscode

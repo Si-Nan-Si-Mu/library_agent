@@ -147,6 +147,8 @@ nlu:
 
   - intent: reading_recommend
     examples: |
+      - 我想看关于[人工智能](topic)的研究书籍
+      - 帮我找几本[分布式系统](topic)相关的书
       - 推荐几本书
       - 有没有关于[人工智能](topic)的书单
       - 想读点[历史](topic)方面的书
@@ -259,6 +261,25 @@ nlu:
       - 帮我借 索书号 [TP311.5/PY-01](call_number)
       - 借条码 [B-HLM-001](call_number)
       - 我现在要借[数据库系统概论](book_title)
+      - 借一下[软件工程](book_title)
+      - 借一下[软件工程（教学参考第1辑）](book_title)
+      - 我想借[软件工程](book_title)
+      - 我要借[软件工程](book_title)
+      - 借[软件工程](book_title)
+      - 借一本[软件工程](book_title)
+      - 借一下[操作系统](book_title)
+      - 借[线性代数](book_title)
+      - 想借[离散数学](book_title)
+      - 我要借[概率论与数理统计](book_title)
+      - 我要借[Go 语言编程（教学参考第2辑）](book_title)
+      - 借[Go 语言编程（教学参考第2辑）](book_title)
+      - go语言
+      - Go语言
+      - 那就借这本
+      - 借第2本
+      - 借第二本
+      - 我要借第2本
+      - 就借第1本
 
   - intent: return_book
     examples: |
@@ -321,6 +342,14 @@ nlu:
       - 人工智能导论
       - 算法导论
       - 计算机网络
+      - 软件工程
+      - 软件工程（教学参考第1辑）
+      - 操作系统
+      - 线性代数
+      - 概率论与数理统计
+      - 离散数学
+      - Java 核心技术
+      - Java 核心技术（教学参考第1辑）
 
   - intent: space_booking
     examples: |

@@ -144,6 +144,24 @@ slots:
       - type: from_entity
         entity: topic
 
+  last_recommended_title:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: custom
+
+  last_recommended_call_number:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: custom
+
+  last_recommended_candidates:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: custom
+
 forms:
   # 用户在同一会话中切换问候/能力说明/其它业务时，应退出当前表单，避免与规则回复叠成两条 bot 消息。
   borrow_book_form:
@@ -326,6 +344,7 @@ actions:
 
   - action_reading_recommend
   - action_book_overview
+  - action_data_inquiry
 
 session_config:
   # 0 表示会话永不过期，同一 sender 会长期保留 active_loop，表现为「每条回复后都追问预约空间」。

@@ -1,0 +1,19 @@
+FROM python:3.10-bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements-rasa.txt .
+RUN pip install --no-cache-dir -U pip setuptools wheel \
+    && pip install --no-cache-dir -r requirements-rasa.txt
+
+COPY . .
+RUN rasa train
+
+ENV PYTHONUNBUFFERED=1
+EXPOSE 5005
+
+CMD ["rasa", "run", "--enable-api", "--cors", "*", "--port", "5005", "--endpoints", "endpoints.docker.yml"]

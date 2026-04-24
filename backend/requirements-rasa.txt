@@ -1,0 +1,7 @@
+# Rasa API 镜像（deploy/Dockerfile.rasa）；与 docs/操作指引.md 中 Conda 示例对齐
+rasa==3.6.21
+rasa-sdk==3.6.2
+jieba>=0.42.1
+flask>=2.0
+requests>=2.28.0
+neo4j>=5.12.0
