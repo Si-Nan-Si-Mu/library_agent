@@ -14,14 +14,14 @@
 ```text
 library_agent/
 ├── backend/                 # Rasa 工程（domain/data/actions/config）
-│   ├── actions/             # 自定义 Action 与 SQLite 访问逻辑
+│   ├── actions/             # 自定义 Action、SQLite、Neo4j 图谱查询
+│   ├── kg_module/           # Neo4j 约束与 CSV 导入（GraphRAG 数据层）
 │   ├── data/                # NLU、rules、stories、responses、词典
 │   ├── tests/               # 对话回归测试数据
 │   ├── config.yml           # NLU pipeline 与 policy
 │   ├── domain.yml           # 意图/实体/槽位/表单/回复
 │   └── start_*.ps1          # Windows 启动脚本（Rasa/Action）
 ├── deploy/                  # Docker Compose + Rasa / Action 镜像构建
-├── library_rag_backend/     # 上游 Graph RAG 参考实现（见下节，与 `backend/` 并行）
 ├── front/lib_agent_vue/     # Vue 对话前端
 ├── docs/                    # 操作指引、改造说明
 ├── sql/                     # SQLite / MySQL 参考脚本
@@ -36,15 +36,11 @@ library_agent/
 
 扩展路线（Neo4j / GraphRAG 等）见 [**README_v2.md**](README_v2.md)。
 
-### 上游 RAG 后端（`library_rag_backend/`）
-
-已通过 `git subtree` 并入仓库快照，来源：`git@github.com:wick2006/library-RAG-Rasa.git`（默认远程名 `rag-rasa`）。该目录为**独立 Rasa 工程根**（含 `actions/neo4j_connector.py`、`llm_server.py`、`kg_module/` 等），与当前主工程 **`backend/`** 目录结构不同，便于对照移植 Neo4j / NL2Cypher / 本地 LLM 逻辑，而不会覆盖现有借还书与 SQLite 演示。
-
-后续同步上游：`git subtree pull --prefix=library_rag_backend rag-rasa main`（若有冲突需按 subtree 流程解决）。
+**知识图谱（主工程 `backend/`）**：`backend/kg_module/`（CSV 导入、Schema）、`backend/actions/neo4j_graph.py`；`reading_recommend` 在配置 `NEO4J_PASSWORD` 时优先查 Neo4j，否则仍用 SQLite。本体规划见 [docs/kg_ontology_v2.md](docs/kg_ontology_v2.md)。
 
 **容器部署**：仓库根目录复制 `.env.example` 为 `.env` 并填写 `DEEPSEEK_API_KEY` 后，执行 `docker compose -f deploy/docker-compose.yml up --build`。Rasa 使用 `backend/endpoints.docker.yml` 连接名为 `actions` 的服务；未配置密钥时「数据类咨询」仍回退为固定话术。
 
-**远程仓库**：`git@github.com:Si-Nan-Si-Mu/library_agent.git` · 可选上游：`git remote add rag-rasa git@github.com:wick2006/library-RAG-Rasa.git`（已存在则跳过）
+**远程仓库**：`git@github.com:Si-Nan-Si-Mu/library_agent.git`
 
 ---
 
@@ -54,7 +50,9 @@ library_agent/
 
 | 日期 | 摘要 |
 | ---- | ---- |
-| 2026-04-24 | 合并上游 `wick2006/library-RAG-Rasa`：以 `git subtree` 导入至 `library_rag_backend/`（与 `backend/` 并行）；清理误跟踪的 `__pycache__` 与 Rasa 模型包；README 说明 subtree 同步命令。 |
+| 2026-04-24 | 删除已合并的 `library_rag_backend/` 快照目录，并移除 `rag-rasa` 远程；图谱与 RAG 能力以 `backend/kg_module` 为准。 |
+| 2026-04-24 | 文档：`docs/操作指引.md` 移除「轻量静态页」并顺延章节；Docker 节补充本机未安装 `docker` 时的说明。 |
+| 2026-04-24 | 完全合并 `backend/library-RAG-Rasa-main`：`kg_module`（CSV 导入、Schema）、`neo4j_graph` 与 `reading_recommend` 图谱优先；`docs/kg_ontology_v2.md`；Compose 增加 Neo4j；依赖增加 `neo4j`；删除嵌套目录。 |
 | 2026-04-24 | 接入 DeepSeek API：`data_inquiry` 走 `action_data_inquiry`（无密钥或失败时回退 `utter_data_inquiry`）；新增 `deploy/docker-compose.yml`、双阶段 Dockerfile、`backend/endpoints.docker.yml`、`.env.example` 与 `requirements-*.txt`。合并后请 `rasa train` 并重启 Action + API。 |
 | 2026-04-13 | 语义纠偏：新增借还/预约/FAQ 对抗样本与口语短句；优化“咨询 vs 办理”“总览 vs 推荐”等易混淆边界，连续多轮扩充 `nlu.yml` 并通过数据校验。 |
 | 2026-04-13 | 借还鲁棒性增强：`actions.py` 对输入书名做归一化提取（支持 `《书名》`、整行书目信息粘贴、去除架位/索书号噪声），并下调 `FallbackClassifier.threshold` 至 `0.35` 以减少误兜底。 |
