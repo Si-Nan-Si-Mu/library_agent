@@ -2,12 +2,21 @@
 
 基于 [Rasa](https://rasa.com/) 的中文**图书馆智能对话助手**（演示）：借还书、借阅指引、空间预约、推荐阅读、数据咨询话术、馆规 FAQ 等；书目借还与推荐阅读使用 **SQLite** 演示库（见 `backend/actions/library_db.py`）。
 
+## 快速开始（Windows）
+
+1. 启动 Action：`backend\start_actions.ps1`
+2. 启动 Rasa：`backend\start_rasa.ps1 -RunOnly -Port 5005`
+3. 启动前端：`front\lib_agent_vue` 下 `pnpm serve`
+
+> 重要：修改 `backend/actions/actions.py` 后，需**重启 Action + Rasa**；仅重启 Rasa 不会加载新的 Action 代码。
+
 ## 项目简介
 
 - 后端基于 `Rasa + rasa-sdk`，实现借书、还书、空间预约、FAQ、推荐阅读等多轮对话。
 - 数据层使用 `SQLite` 演示库，支持在架/已借状态切换与基础书目检索。
 - 前端为 Vue 聊天页，通过 REST webhook 对接 `Rasa API`。
 - 当前定位为演示与联调工程，可逐步扩展到真实 OPAC/流通/预约系统。
+- DeepSeek 仅用于 `data_inquiry` 场景的生成式说明；借还书、推荐阅读、书籍总览等主流程由规则 + SQLite/Neo4j 数据驱动。
 
 ## 目录结构（简版）
 
@@ -51,6 +60,7 @@ library_agent/
 | 日期 | 摘要 |
 | ---- | ---- |
 | 2026-04-24 | 删除已合并的 `library_rag_backend/` 快照目录，并移除 `rag-rasa` 远程；图谱与 RAG 能力以 `backend/kg_module` 为准。 |
+| 2026-04-24 | 文档统一：补充「快速开始」「Action 代码变更需重启双服务」与 DeepSeek 适用边界说明；操作指引新增推荐后借第 N 本与相关排障。 |
 | 2026-04-24 | 文档：`docs/操作指引.md` 移除「轻量静态页」并顺延章节；Docker 节补充本机未安装 `docker` 时的说明。 |
 | 2026-04-24 | 完全合并 `backend/library-RAG-Rasa-main`：`kg_module`（CSV 导入、Schema）、`neo4j_graph` 与 `reading_recommend` 图谱优先；`docs/kg_ontology_v2.md`；Compose 增加 Neo4j；依赖增加 `neo4j`；删除嵌套目录。 |
 | 2026-04-24 | 接入 DeepSeek API：`data_inquiry` 走 `action_data_inquiry`（无密钥或失败时回退 `utter_data_inquiry`）；新增 `deploy/docker-compose.yml`、双阶段 Dockerfile、`backend/endpoints.docker.yml`、`.env.example` 与 `requirements-*.txt`。合并后请 `rasa train` 并重启 Action + API。 |

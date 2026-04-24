@@ -1,6 +1,6 @@
 # 项目开发指南：基于 Rasa 的图书馆智能助手（含 GraphRAG 扩展路线）
 
-本文档在仓库根目录 **[README.md](README.md)** 所索引的**当前可运行实现**之上，整理**目标技术路线**与**环境依赖**，便于后续接入知识图谱与本地大模型。日常联调命令仍以 **[docs/操作指引.md](docs/操作指引.md)** 为准。
+本文档在仓库根目录 **[README.md](README.md)** 所索引的**当前可运行实现**之上，整理**目标技术路线**与**环境依赖**，便于后续接入知识图谱与本地大模型。日常联调命令仍以 **[docs/操作指引.md](docs/操作指引.md)** 为准。若修改了 `backend/actions/*.py`，请务必同时重启 Action 与 Rasa 服务。
 
 ---
 
@@ -37,7 +37,7 @@
 | 对话引擎   | Rasa Open Source（配置与数据在 `backend/`）                                 | 保持 Rasa 为编排核心         |
 | 书目演示数据 | SQLite（`backend/data/library.db`，见 `backend/actions/library_db.py`） | 可与 OPAC/ILS 或图谱同步源并存  |
 | 图数据库   | 无                                                                   | Neo4j                 |
-| 推理后端   | 无（BERT 管线在 `backend/config.yml` 中可按需开启）                             | Ollama + 自选 GGUF/量化模型 |
+| 推理后端   | DeepSeek（仅 `data_inquiry` 场景）+ 规则引擎 | Ollama + 自选 GGUF/量化模型 |
 | 前端     | `front/lib_agent_vue`（Rasa REST/Webhook）                            | 同左                    |
 
 
@@ -52,7 +52,9 @@ library_agent/
 ├── backend/                 # Rasa 工程根
 │   ├── actions/
 │   │   ├── actions.py       # 自定义 Action（借还、预约演示、推荐阅读等）
-│   │   └── library_db.py    # SQLite 书目访问
+│   │   ├── library_db.py    # SQLite 书目访问
+│   │   └── neo4j_graph.py   # Neo4j 主题推荐（与 kg_module 数据一致）
+│   ├── kg_module/           # 图谱 Schema、CSV 导入、NL2Cypher 占位
 │   ├── data/                # NLU / stories / rules / 词典等
 │   ├── config.yml
 │   ├── domain.yml
@@ -82,7 +84,7 @@ graph_rag/                # 可选顶层包
 └── prompt_templates.py   # 提示词模板版本管理
 ```
 
-容器化部署可再增加 `docker-compose.yml`（Neo4j、可选 Ollama、Rasa、Action），与现有 PowerShell 脚本互补。
+容器化：仓库已提供 `deploy/docker-compose.yml`（Rasa API + Action；可选 DeepSeek 见根目录 `.env.example`）。后续若接 Neo4j / Ollama，可在同一 compose 中追加服务。
 
 ---
 
