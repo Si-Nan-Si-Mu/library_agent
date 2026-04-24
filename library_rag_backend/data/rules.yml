@@ -1,0 +1,12 @@
+version: "3.1"
+
+rules:
+  - rule: 用户打招呼时回复问候语
+    steps:
+      - intent: greet
+      - action: utter_greet
+
+  - rule: 用户请求按主题推荐时，触发查询动作
+    steps:
+      - intent: recommend_by_topic
+      - action: action_recommend_by_topic

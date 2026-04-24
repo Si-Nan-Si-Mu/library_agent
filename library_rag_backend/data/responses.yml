@@ -1,0 +1,31 @@
+version: "3.1"
+responses:
+  utter_faq/ask_pay:
+  - text: 您可以通过说“我要缴费”来进行缴费功能，或者移步到一楼收费处进行缴费。
+
+  utter_faq/ask_register:
+  - text: 您可以通过说“我要挂号”来进行挂号就医，或者移步到一楼挂号处进行挂号。
+
+  utter_faq/ask_parking:
+  - text: 我们医院包含停车场，共有300个停车位。停车场位于医院2号楼北面。
+
+  utter_faq/pay_parking:
+  - text: 我们医院停车场的收费为一小时10元，封顶六十元一天。您可以通过扫描停车场的二维码进行缴费。
+
+  utter_faq/phone_number:
+  - text: 医院客服电话是 010-12345678，您可以拨打该电话咨询挂号、缴费及其他问题。
+
+  utter_faq/ask_info_hospital:
+  - text: 我们医院是一所综合性三级甲等医院，设有内科、外科、口腔科等多个科室，提供门诊、住院及急诊服务。
+
+  utter_faq/ask_info_doctor:
+  - text: 您可以通过在小程序上的“查询医生”功能查看各科医生信息，同时可以通过说“查询排班”来查看对应医生的排班情况。
+
+  utter_faq/ask_info_canteen:
+  - text: 医院设有餐厅，提供中餐和快餐，餐厅位于门诊楼一楼，您可以从大厅指示牌找到入口。
+
+  utter_faq/ask_position_inpatient:
+  - text: 住院楼位于医院东侧的二号楼，您可以沿主路直行至东侧门口，入口有导医指示牌指引。
+
+  utter_faq/ask_position_stomatology:
+  - text: 口腔科在门诊楼二楼，您可以乘电梯或楼梯上二楼，按照导医牌指引前往即可。

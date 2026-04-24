@@ -1,0 +1,27 @@
+version: "3.1"
+
+# 1. 意图：用户想干嘛？
+intents:
+  - greet
+  - recommend_by_topic
+
+# 2. 实体：从用户话语中提取的关键参数
+entities:
+  - topic
+
+# 3. 槽位：用于在对话上下文中临时记住提取到的实体
+slots:
+  topic:
+    type: text
+    mappings:
+      - type: from_entity
+        entity: topic
+
+# 4. 动作：系统要执行的自定义逻辑代码
+actions:
+  - action_recommend_by_topic
+
+# 5. 固定回复：系统自带的简单文本回复
+responses:
+  utter_greet:
+  - text: "你好！我是图书馆智能助理。你可以让我帮你按研究方向推荐书籍，比如输入：'我想看关于人工智能的书'。"

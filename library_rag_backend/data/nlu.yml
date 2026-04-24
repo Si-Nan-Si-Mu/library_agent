@@ -1,0 +1,18 @@
+version: "3.1"
+
+nlu:
+  - intent: greet
+    examples: |
+      - 你好
+      - 嗨
+      - 在吗
+      - hello
+
+  - intent: recommend_by_topic
+    examples: |
+      - 我想看关于[人工智能](topic)的研究书籍
+      - 帮我找几本[赛博朋克](topic)相关的书
+      - 有没有[深度学习](topic)方向的推荐？
+      - 给我推荐一点[算法设计](topic)的资料
+      - 我需要[分布式系统](topic)的书籍
+      - 搜索研究方向是[人工智能](topic)的文献
