@@ -12,10 +12,15 @@ except Exception:
 from .library_db import (
     borrow_book,
     format_on_shelf_borrow_preview,
+    get_active_borrow_count,
     get_catalog_overview,
+    list_active_borrow_records,
+    list_catalog_books,
+    list_borrow_records,
     list_borrowed_by_title,
     list_on_shelf_by_title,
     lookup_circulation,
+    record_borrow_transaction,
     recommend_on_shelf,
     return_book,
 )
@@ -57,6 +62,22 @@ def _normalize_title_from_text(text: Any) -> str:
     for p in ["吗", "呢", "呀", "吧", "啊", "，", "。", "？", "！", ",", ".", "?", "!"]:
         raw = raw.replace(p, " ")
     return " ".join(raw.split())
+
+
+def _is_generic_borrow_command(text: Any) -> bool:
+    raw = (str(text or "")).strip()
+    if not raw:
+        return False
+    compact = re.sub(r"\s+", "", raw)
+    patterns = (
+        r"^(我)?(想|要)?(来)?借书$",
+        r"^借书$",
+        r"^借一下$",
+        r"^帮我借书$",
+        r"^我要办理借阅$",
+        r"^办理借阅$",
+    )
+    return any(re.fullmatch(p, compact) for p in patterns)
 
 
 def _is_demo_book_reference(text: Any) -> bool:
@@ -124,6 +145,18 @@ def _pick_call_number(raw: str, rows: List[Dict[str, Any]]) -> Optional[str]:
     return None
 
 
+def _dedupe_rows_by_call_number(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """按索书号去重并稳定排序，避免同一索书号重复展示。"""
+    by_call: Dict[str, Dict[str, Any]] = {}
+    for row in rows or []:
+        call_no = (row.get("book_key") or "").strip().upper()
+        if not call_no:
+            continue
+        if call_no not in by_call:
+            by_call[call_no] = row
+    return [by_call[k] for k in sorted(by_call.keys())]
+
+
 class ValidateBorrowBookForm(FormValidationAction):
     def name(self) -> Text:
         return "validate_borrow_book_form"
@@ -136,6 +169,8 @@ class ValidateBorrowBookForm(FormValidationAction):
         domain: Dict[Text, Any],
     ) -> Dict[Text, Any]:
         latest_text = tracker.latest_message.get("text") or ""
+        if _is_generic_borrow_command(latest_text):
+            return {"book_title": None}
         picked_from_rec = _pick_recommended_title_from_text(
             latest_text, tracker.get_slot("last_recommended_candidates")
         )
@@ -157,13 +192,164 @@ class ValidateBorrowBookForm(FormValidationAction):
         return {"book_title": latest}
 
 
+class ActionAskBorrowBookFormBookTitle(Action):
+    """借书时返回可交互书目清单（前端本地查询/翻页）。"""
+
+    def name(self) -> Text:
+        return "action_ask_borrow_book_form_book_title"
+
+    def run(
+        self,
+        dispatcher: CollectingDispatcher,
+        tracker: Tracker,
+        domain: Dict[Text, Any],
+    ) -> List[Dict[Text, Any]]:
+        borrower_id = (tracker.sender_id or "").strip()
+        active_count = get_active_borrow_count(borrower_id)
+        active_rows = [
+            r for r in list_borrow_records(borrower_id, limit=20) if not (r.get("returned_at") or "").strip()
+        ]
+        rows = _dedupe_rows_by_call_number(list_catalog_books(limit=500))
+        payload_rows = []
+        for r in rows:
+            borrowed = int(r.get("is_borrow") or 0) == 1
+            payload_rows.append(
+                {
+                    "book_title": r.get("lib_book") or "",
+                    "call_number": r.get("book_key") or "",
+                    "book_pos": r.get("book_pos") or "位置未定",
+                    "status": "已借出" if borrowed else "在架可借",
+                    "is_available": not borrowed,
+                }
+            )
+        dispatcher.utter_message(text="请问要办理的书名是？可在下方书目表中搜索并翻页选择。")
+        dispatcher.utter_message(
+            json_message={
+                "payload_type": "borrow_catalog",
+                "rows": payload_rows,
+                "total": len(payload_rows),
+                "borrow_policy": {
+                    "borrower_id": borrower_id,
+                    "active_count": active_count,
+                    "max_active": 3,
+                    "can_borrow": active_count < 3,
+                    "message": (
+                        f"当前账号（{borrower_id}）已借 {active_count}/3 本；"
+                        + ("可继续借阅。" if active_count < 3 else "已达上限，请先归还后再借。")
+                    ),
+                    "active_books": [
+                        {
+                            "book_title": str(x.get("lib_book") or "").strip(),
+                            "call_number": str(x.get("book_key") or "").strip(),
+                        }
+                        for x in active_rows
+                    ],
+                },
+            }
+        )
+        return []
+
+
+class ActionAskReturnBookFormBookTitle(Action):
+    def name(self) -> Text:
+        return "action_ask_return_book_form_book_title"
+
+    def run(
+        self,
+        dispatcher: CollectingDispatcher,
+        tracker: Tracker,
+        domain: Dict[Text, Any],
+    ) -> List[Dict[Text, Any]]:
+        borrower_id = (tracker.sender_id or "").strip()
+        rows = list_active_borrow_records(borrower_id, limit=120)
+        catalog_rows = [
+            {
+                "book_title": str(r.get("lib_book") or "").strip(),
+                "call_number": str(r.get("book_key") or "").strip(),
+                "book_pos": str(r.get("book_pos") or "").strip(),
+                "borrow_at": str(r.get("borrow_at") or "").strip(),
+                "due_at": str(r.get("due_at") or "").strip(),
+                "status": "待归还",
+                "can_return": True,
+            }
+            for r in rows
+            if (str(r.get("book_key") or "").strip() and str(r.get("lib_book") or "").strip())
+        ]
+        msg = (
+            f"当前账号（{borrower_id}）待还 {len(catalog_rows)} 本；"
+            + ("可在下方选择并批量归还。" if catalog_rows else "暂无待还图书。")
+        )
+        dispatcher.utter_message(
+            text="请问要办理归还的书名是？可在下方待还列表中搜索并翻页选择。",
+            json_message={
+                "payload_type": "return_catalog",
+                "rows": catalog_rows,
+                "total": len(catalog_rows),
+                "return_policy": {
+                    "borrower_id": borrower_id,
+                    "active_count": len(catalog_rows),
+                    "can_return": len(catalog_rows) > 0,
+                    "message": msg,
+                },
+            },
+        )
+        return []
+
+
 class ActionBorrowBookFormSubmit(Action):
     def name(self) -> Text:
         return "action_borrow_book_form_submit"
 
     def run(self, dispatcher, tracker, domain):
         title = (tracker.get_slot("book_title") or "").strip()
-        rows = list_on_shelf_by_title(title)
+        metadata = tracker.latest_message.get("metadata") or {}
+        # 兜底：若会话状态串线误入借书提交，但前端实际提交的是 return_profile，则按还书直办处理。
+        return_profile = metadata.get("return_profile") if isinstance(metadata, dict) else {}
+        if isinstance(return_profile, dict):
+            prof_call = _normalize_call_input(return_profile.get("callNumber"))
+            prof_title = (str(return_profile.get("bookTitle") or "")).strip() or title
+            if prof_call:
+                borrower_id = (tracker.sender_id or "").strip()
+                ok, _, detail = return_book(prof_title, prof_call, borrower_id=borrower_id)
+                dispatcher.utter_message(text=detail)
+                return [
+                    AllSlotsReset(),
+                    SlotSet("api_return_succeed", ok),
+                    SlotSet("last_return_detail", detail),
+                    ActiveLoop(None),
+                    FollowupAction("action_listen"),
+                ]
+        profile = metadata.get("borrow_profile") if isinstance(metadata, dict) else {}
+        # 前端批量提交会携带 borrow_profile：此处直办借阅，避免再依赖“确认”意图识别。
+        if isinstance(profile, dict):
+            prof_call = _normalize_call_input(profile.get("callNumber"))
+            prof_title = (str(profile.get("bookTitle") or "")).strip() or title
+            if prof_call:
+                borrower_id = (tracker.sender_id or "").strip()
+                contact = str(profile.get("studentOrPhone") or "").strip()
+                display_name = str(profile.get("name") or borrower_id).strip() or borrower_id
+                if contact:
+                    display_name = f"{display_name}（{contact}）"
+                ok, book_info, detail = borrow_book(prof_title, prof_call, borrower_id=borrower_id)
+                if ok:
+                    written = record_borrow_transaction(
+                        book_snapshot=book_info,
+                        borrower_id=borrower_id,
+                        borrower_name=display_name,
+                        borrow_at=str(profile.get("borrowAt") or ""),
+                        due_at=str(profile.get("dueAt") or ""),
+                    )
+                    if written:
+                        detail = f"{detail}\n已登记借阅人信息。"
+                dispatcher.utter_message(text=detail)
+                return [
+                    AllSlotsReset(),
+                    SlotSet("api_borrow_succeed", ok),
+                    SlotSet("last_borrow_detail", detail),
+                    ActiveLoop(None),
+                    FollowupAction("action_listen"),
+                ]
+        rows = _dedupe_rows_by_call_number(list_on_shelf_by_title(title))
         if not rows:
             dispatcher.utter_message(
                 text=(
@@ -183,13 +369,6 @@ class ActionBorrowBookFormSubmit(Action):
         if len(rows) == 1:
             r = rows[0]
             call_no = (r.get("book_key") or "").strip()
-            dispatcher.utter_message(
-                text=(
-                    f"在架可借（1 本）：《{r['lib_book']}》 索书号 {r['book_key']}，"
-                    f"架位 {r.get('book_pos') or '未定'}。"
-                )
-            )
-            dispatcher.utter_message(text=format_on_shelf_borrow_preview(r))
             dispatcher.utter_message(
                 text=f"确认借阅《{r['lib_book']}》（索书号 {call_no}）吗？"
             )
@@ -234,18 +413,16 @@ class ValidateBorrowCallForm(FormValidationAction):
         raw = (str(slot_value).strip() if slot_value not in (None, "") else "") or (
             tracker.latest_message.get("text") or ""
         ).strip()
+        if _is_generic_borrow_command(raw):
+            return {"call_number": None}
         raw = _normalize_call_input(raw)
         title = (tracker.get_slot("book_title") or "").strip()
         if not raw:
-            dispatcher.utter_message(text="请回复列表中的索书号，或直接回复序号（如「1」「第2本」）。")
             return {"call_number": None}
-        rows = list_on_shelf_by_title(title)
+        rows = _dedupe_rows_by_call_number(list_on_shelf_by_title(title))
         picked = _pick_call_number(raw, rows)
         if picked:
             return {"call_number": picked}
-        dispatcher.utter_message(
-            text="该输入不在当前可借列表中，或对应副本已不在架。请回复列表中的索书号或序号。"
-        )
         return {"call_number": None}
 
 
@@ -265,7 +442,7 @@ class ActionBorrowCallFormSubmit(Action):
                 SlotSet("call_number", None),
                 ActiveLoop("borrow_call_form"),
             ]
-        rows = list_on_shelf_by_title(title)
+        rows = _dedupe_rows_by_call_number(list_on_shelf_by_title(title))
         resolved = _pick_call_number(call_no, rows)
         if not resolved:
             dispatcher.utter_message(
@@ -288,7 +465,6 @@ class ActionBorrowCallFormSubmit(Action):
                 ActiveLoop(None),
                 FollowupAction("action_listen"),
             ]
-        dispatcher.utter_message(text=format_on_shelf_borrow_preview(row))
         dispatcher.utter_message(
             text=f"确认借阅《{row['lib_book']}》（索书号 {call_no}）吗？"
         )
@@ -310,7 +486,24 @@ class ActionBorrowBook(Action):
     ) -> List[Dict[Text, Any]]:
         title = (tracker.get_slot("book_title") or "").strip()
         call_no = (tracker.get_slot("call_number") or "").strip()
-        ok, _, detail = borrow_book(title, call_no)
+        metadata = tracker.latest_message.get("metadata") or {}
+        profile = metadata.get("borrow_profile") if isinstance(metadata, dict) else {}
+        borrower_id = (tracker.sender_id or "").strip()
+        ok, book_info, detail = borrow_book(title, call_no, borrower_id=borrower_id)
+        if ok and isinstance(profile, dict):
+            contact = str(profile.get("studentOrPhone") or "").strip()
+            display_name = str(profile.get("name") or borrower_id).strip() or borrower_id
+            if contact:
+                display_name = f"{display_name}（{contact}）"
+            written = record_borrow_transaction(
+                book_snapshot=book_info,
+                borrower_id=borrower_id,
+                borrower_name=display_name,
+                borrow_at=str(profile.get("borrowAt") or ""),
+                due_at=str(profile.get("dueAt") or ""),
+            )
+            if written:
+                detail = f"{detail}\n已登记借阅人信息。"
         return [
             AllSlotsReset(),
             SlotSet("api_borrow_succeed", ok),
@@ -348,6 +541,22 @@ class ActionReturnBookFormSubmit(Action):
 
     def run(self, dispatcher, tracker, domain):
         title = (tracker.get_slot("book_title") or "").strip()
+        metadata = tracker.latest_message.get("metadata") or {}
+        profile = metadata.get("return_profile") if isinstance(metadata, dict) else {}
+        if isinstance(profile, dict):
+            prof_call = _normalize_call_input(profile.get("callNumber"))
+            prof_title = (str(profile.get("bookTitle") or "")).strip() or title
+            if prof_call:
+                borrower_id = (tracker.sender_id or "").strip()
+                ok, _, detail = return_book(prof_title, prof_call, borrower_id=borrower_id)
+                dispatcher.utter_message(text=detail)
+                return [
+                    AllSlotsReset(),
+                    SlotSet("api_return_succeed", ok),
+                    SlotSet("last_return_detail", detail),
+                    ActiveLoop(None),
+                    FollowupAction("action_listen"),
+                ]
         rows = list_borrowed_by_title(title)
         if not rows:
             dispatcher.utter_message(
@@ -417,18 +626,16 @@ class ValidateReturnCallForm(FormValidationAction):
         raw = (str(slot_value).strip() if slot_value not in (None, "") else "") or (
             tracker.latest_message.get("text") or ""
         ).strip()
+        if "还书" in raw:
+            return {"call_number": None}
         raw = _normalize_call_input(raw)
         title = (tracker.get_slot("book_title") or "").strip()
         if not raw:
-            dispatcher.utter_message(text="请回复列表中的索书号，或直接回复序号（如「1」「第2条」）。")
             return {"call_number": None}
         rows = list_borrowed_by_title(title)
         picked = _pick_call_number(raw, rows)
         if picked:
             return {"call_number": picked}
-        dispatcher.utter_message(
-            text="该输入不在当前待还列表中。请核对后重新输入列表中的索书号或序号。"
-        )
         return {"call_number": None}
 
 
@@ -482,12 +689,14 @@ class ActionReturnBook(Action):
     ) -> List[Dict[Text, Any]]:
         title = (tracker.get_slot("book_title") or "").strip()
         call_no = (tracker.get_slot("call_number") or "").strip()
-        ok, _, detail = return_book(title, call_no)
+        borrower_id = (tracker.sender_id or "").strip()
+        ok, _, detail = return_book(title, call_no, borrower_id=borrower_id)
         return [
             AllSlotsReset(),
             SlotSet("api_return_succeed", ok),
             SlotSet("last_return_detail", detail),
             ActiveLoop(None),
+            FollowupAction("action_listen"),
         ]
 
 
@@ -676,6 +885,47 @@ class ActionBookOverview(Action):
                 + "\n".join(lines)
                 + "\n如需按主题筛选，可继续说「推荐历史书」；如需借阅可直接说书名。"
             )
+        )
+        return []
+
+
+class ActionBorrowRecordQuery(Action):
+    def name(self) -> Text:
+        return "action_borrow_record_query"
+
+    def run(
+        self,
+        dispatcher: CollectingDispatcher,
+        tracker: Tracker,
+        domain: Dict[Text, Any],
+    ) -> List[Dict[Text, Any]]:
+        text = (tracker.latest_message.get("text") or "").strip()
+        metadata = tracker.latest_message.get("metadata") or {}
+        borrower_id = ""
+        if isinstance(metadata, dict):
+            borrower_id = str(metadata.get("borrower_id") or "").strip()
+        if not borrower_id:
+            m = re.search(r"\d{6,20}", text)
+            if m:
+                borrower_id = m.group(0)
+        if not borrower_id:
+            borrower_id = (tracker.sender_id or "").strip()
+        rows = list_borrow_records(borrower_id, limit=20)
+        if not rows:
+            dispatcher.utter_message(
+                text=f"未查询到账号 {borrower_id} 的借阅记录。可说“借阅记录 20230001”按学号/手机号查询。"
+            )
+            return []
+        active_count = sum(1 for r in rows if not (r.get("returned_at") or "").strip())
+        lines = []
+        for i, r in enumerate(rows[:10], start=1):
+            returned_at = (r.get("returned_at") or "").strip()
+            status = f"已归还（{returned_at}）" if returned_at else "未归还"
+            lines.append(
+                f"{i}. 《{r['lib_book']}》 {r['book_key']} | 借出:{r['borrow_at']} | 预计还:{r['due_at']} | {status}"
+            )
+        dispatcher.utter_message(
+            text=f"借阅记录（账号 {borrower_id}）：未归还 {active_count}/3 本。\n" + "\n".join(lines)
         )
         return []
 

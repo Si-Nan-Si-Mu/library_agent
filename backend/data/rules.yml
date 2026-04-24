@@ -121,6 +121,14 @@ rules:
       - action: action_deactivate_loop
       - action: action_data_inquiry
 
+  - rule: 借阅记录查询
+    condition:
+      - active_loop: null
+    steps:
+      - intent: borrow_record_query
+      - action: action_deactivate_loop
+      - action: action_borrow_record_query
+
   - rule: 推荐阅读
     condition:
       - active_loop: null
@@ -130,6 +138,8 @@ rules:
       - action: action_reading_recommend
 
   - rule: 书籍总览
+    condition:
+      - active_loop: null
     steps:
       - intent: book_overview
       - action: action_deactivate_loop
@@ -160,6 +170,26 @@ rules:
       - intent: space_booking
       - action: space_booking_form
       - active_loop: space_booking_form
+
+  - rule: 借书索书号表单中重开借书
+    condition:
+      - active_loop: borrow_call_form
+    steps:
+      - intent: borrow_book
+      - action: action_deactivate_loop
+      - active_loop: null
+      - action: borrow_book_form
+      - active_loop: borrow_book_form
+
+  - rule: 还书索书号表单中重开还书
+    condition:
+      - active_loop: return_call_form
+    steps:
+      - intent: return_book
+      - action: action_deactivate_loop
+      - active_loop: null
+      - action: return_book_form
+      - active_loop: return_book_form
 
   # 表单正常填完后，显式提交，避免策略未命中时掉到 action_default_fallback。
   - rule: 提交借书表单

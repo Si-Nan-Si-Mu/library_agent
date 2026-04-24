@@ -20,6 +20,7 @@ intents:
       use_entities: []
   - data_inquiry
   - book_overview
+  - borrow_record_query
 
 entities:
   - book_title
@@ -314,6 +315,7 @@ actions:
   - respond_faq
 
   - validate_borrow_book_form
+  - action_ask_borrow_book_form_book_title
   - action_borrow_book_form_submit
   - validate_borrow_call_form
   - action_borrow_call_form_submit
@@ -324,6 +326,7 @@ actions:
   - utter_api_borrow_succeed_false
 
   - validate_return_book_form
+  - action_ask_return_book_form_book_title
   - action_return_book_form_submit
   - validate_return_call_form
   - action_return_call_form_submit
@@ -344,6 +347,7 @@ actions:
 
   - action_reading_recommend
   - action_book_overview
+  - action_borrow_record_query
   - action_data_inquiry
 
 session_config:

@@ -10,6 +10,7 @@ from typing import List, Optional, Tuple
 from .book_catalog_seed import generate_bulk_rows, minimum_catalog_size
 
 logger = logging.getLogger(__name__)
+MAX_ACTIVE_BORROW = 3
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS library_book (
@@ -24,6 +25,22 @@ CREATE TABLE IF NOT EXISTS library_book (
 CREATE INDEX IF NOT EXISTS idx_library_book_is_borrow ON library_book (is_borrow);
 CREATE INDEX IF NOT EXISTS idx_library_book_lib_book ON library_book (lib_book);
 CREATE INDEX IF NOT EXISTS idx_library_book_book_key ON library_book (book_key);
+
+CREATE TABLE IF NOT EXISTS borrow_record (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    book_id INTEGER,
+    book_key TEXT NOT NULL,
+    lib_book TEXT NOT NULL,
+    borrower_id TEXT NOT NULL,
+    borrower_name TEXT NOT NULL,
+    borrow_at TEXT NOT NULL,
+    due_at TEXT NOT NULL,
+    returned_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_borrow_record_book_key ON borrow_record (book_key);
+CREATE INDEX IF NOT EXISTS idx_borrow_record_borrower_id ON borrow_record (borrower_id);
+CREATE INDEX IF NOT EXISTS idx_borrow_record_created_at ON borrow_record (created_at);
 """
 
 # 少量经典演示行（与早期种子一致）；其余由 book_catalog_seed 补至 MIN 条
@@ -75,6 +92,7 @@ def _ensure_row_count(conn: sqlite3.Connection) -> None:
 
 def _init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(_SCHEMA)
+    _ensure_borrow_record_columns(conn)
     cur = conn.execute("SELECT COUNT(1) FROM library_book")
     if cur.fetchone()[0] == 0:
         conn.executemany(
@@ -85,6 +103,14 @@ def _init_schema(conn: sqlite3.Connection) -> None:
     else:
         conn.commit()
     _ensure_row_count(conn)
+
+
+def _ensure_borrow_record_columns(conn: sqlite3.Connection) -> None:
+    cur = conn.execute("PRAGMA table_info(borrow_record)")
+    cols = {str(r["name"]) for r in cur.fetchall()}
+    if cols and "returned_at" not in cols:
+        conn.execute("ALTER TABLE borrow_record ADD COLUMN returned_at TEXT")
+        conn.commit()
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict:
@@ -179,7 +205,27 @@ def lookup_circulation(title: str, call_no: str) -> str:
         return "查询书目时数据库出错，请稍后再试。"
 
 
-def borrow_book(title: str, call_no: str) -> Tuple[bool, Optional[dict], str]:
+def get_active_borrow_count(borrower_id: str) -> int:
+    borrower_id = (borrower_id or "").strip()
+    if not borrower_id:
+        return 0
+    try:
+        with get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(1) AS c
+                FROM borrow_record
+                WHERE borrower_id = ? AND returned_at IS NULL
+                """,
+                (borrower_id,),
+            ).fetchone()
+            return int((row["c"] if row else 0) or 0)
+    except sqlite3.Error as e:
+        logger.warning("get_active_borrow_count: %s", e)
+        return 0
+
+
+def borrow_book(title: str, call_no: str, borrower_id: str = "") -> Tuple[bool, Optional[dict], str]:
     """
     尝试借阅。
     返回 (是否办理成功, 书目快照或 None, 面向用户的说明全文)。
@@ -187,6 +233,24 @@ def borrow_book(title: str, call_no: str) -> Tuple[bool, Optional[dict], str]:
     """
     try:
         with get_connection() as conn:
+            normalized_borrower = (borrower_id or "").strip()
+            if normalized_borrower:
+                row_count = conn.execute(
+                    """
+                    SELECT COUNT(1) AS c
+                    FROM borrow_record
+                    WHERE borrower_id = ? AND returned_at IS NULL
+                    """,
+                    (normalized_borrower,),
+                ).fetchone()
+                active_count = int((row_count["c"] if row_count else 0) or 0)
+                if active_count >= MAX_ACTIVE_BORROW:
+                    return (
+                        False,
+                        None,
+                        f"借阅未通过：当前账号未归还 {active_count} 本，已达到上限 {MAX_ACTIVE_BORROW} 本。"
+                        "请先归还至少 1 本后再借阅。",
+                    )
             row = find_book_row_any(conn, title, call_no)
             if not row:
                 return (
@@ -221,8 +285,8 @@ def borrow_book(title: str, call_no: str) -> Tuple[bool, Optional[dict], str]:
         return False, None, "借阅处理失败：数据库错误，请稍后再试。"
 
 
-def return_book(title: str, call_no: str) -> Tuple[bool, Optional[dict], str]:
-    """已借出则可还；在架则提示无需归还。"""
+def return_book(title: str, call_no: str, borrower_id: str = "") -> Tuple[bool, Optional[dict], str]:
+    """已借出则可还；在架则提示无需归还。若提供 borrower_id，则仅允许归还该账号名下待还记录。"""
     try:
         with get_connection() as conn:
             row = find_book_row_any(conn, title, call_no)
@@ -239,10 +303,58 @@ def return_book(title: str, call_no: str) -> Tuple[bool, Optional[dict], str]:
                     _row_to_dict(row),
                     f"《{row['lib_book']}》（{row['book_key']}）当前为在架状态（{pos}），无需办理归还。",
                 )
+            normalized_borrower = (borrower_id or "").strip()
+            if normalized_borrower:
+                own_active = conn.execute(
+                    """
+                    SELECT id
+                    FROM borrow_record
+                    WHERE borrower_id = ? AND book_key = ? AND returned_at IS NULL
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (normalized_borrower, row["book_key"]),
+                ).fetchone()
+                if not own_active:
+                    return (
+                        False,
+                        _row_to_dict(row),
+                        "归还未通过：当前账号下无此书的待还记录，请核对后重试。",
+                    )
             conn.execute(
                 "UPDATE library_book SET is_borrow = 0, updated_at = datetime('now') WHERE id = ?",
                 (row["id"],),
             )
+            if normalized_borrower:
+                conn.execute(
+                    """
+                    UPDATE borrow_record
+                    SET returned_at = datetime('now')
+                    WHERE id = (
+                        SELECT id
+                        FROM borrow_record
+                        WHERE borrower_id = ? AND book_key = ? AND returned_at IS NULL
+                        ORDER BY id DESC
+                        LIMIT 1
+                    )
+                    """,
+                    (normalized_borrower, row["book_key"]),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE borrow_record
+                    SET returned_at = datetime('now')
+                    WHERE id = (
+                        SELECT id
+                        FROM borrow_record
+                        WHERE book_key = ? AND returned_at IS NULL
+                        ORDER BY id DESC
+                        LIMIT 1
+                    )
+                    """,
+                    (row["book_key"],),
+                )
             conn.commit()
             info = _row_to_dict(row)
             info["is_borrow"] = 0
@@ -313,6 +425,43 @@ def list_borrowed_by_title(title: str, limit: int = 50) -> List[dict]:
         return []
 
 
+def list_active_borrow_records(borrower_id: str, limit: int = 100) -> List[dict]:
+    """按账号查询未归还记录，用于前端可视化还书列表。"""
+    borrower_id = (borrower_id or "").strip()
+    if not borrower_id:
+        return []
+    try:
+        with get_connection() as conn:
+            cur = conn.execute(
+                """
+                SELECT r.book_key, r.lib_book, r.borrower_id, r.borrower_name, r.borrow_at, r.due_at, b.book_pos
+                FROM borrow_record r
+                LEFT JOIN library_book b ON b.book_key = r.book_key
+                WHERE r.borrower_id = ? AND r.returned_at IS NULL
+                ORDER BY r.id DESC
+                LIMIT ?
+                """,
+                (borrower_id, limit),
+            )
+            rows = []
+            for r in cur.fetchall():
+                rows.append(
+                    {
+                        "book_key": str(r["book_key"] or "").strip(),
+                        "lib_book": str(r["lib_book"] or "").strip(),
+                        "borrower_id": str(r["borrower_id"] or "").strip(),
+                        "borrower_name": str(r["borrower_name"] or "").strip(),
+                        "borrow_at": str(r["borrow_at"] or "").strip(),
+                        "due_at": str(r["due_at"] or "").strip(),
+                        "book_pos": str(r["book_pos"] or "").strip(),
+                    }
+                )
+            return rows
+    except sqlite3.Error as e:
+        logger.warning("list_active_borrow_records: %s", e)
+        return []
+
+
 def get_catalog_overview(limit: int = 12) -> dict:
     """返回馆藏总览：总量、在架/已借出数量，以及部分在架书目。"""
     try:
@@ -367,4 +516,87 @@ def recommend_on_shelf(topic: Optional[str], limit: int = 5) -> List[dict]:
             return [_row_to_dict(r) for r in cur.fetchall()]
     except sqlite3.Error as e:
         logger.warning("recommend_on_shelf: %s", e)
+        return []
+
+
+def list_catalog_books(limit: int = 500) -> List[dict]:
+    """返回馆藏书目列表（含在架/已借出状态），用于前端借书交互表单。"""
+    try:
+        with get_connection() as conn:
+            cur = conn.execute(
+                """
+                SELECT book_key, lib_book, book_pos, is_borrow
+                FROM library_book
+                ORDER BY id
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            return [_row_to_dict(r) for r in cur.fetchall()]
+    except sqlite3.Error as e:
+        logger.warning("list_catalog_books: %s", e)
+        return []
+
+
+def record_borrow_transaction(
+    book_snapshot: Optional[dict],
+    borrower_id: str,
+    borrower_name: str,
+    borrow_at: str,
+    due_at: str,
+) -> bool:
+    """写入借阅登记记录（仅在借阅成功后调用）。"""
+    if not book_snapshot:
+        return False
+    borrower_id = (borrower_id or "").strip()
+    borrower_name = (borrower_name or "").strip()
+    borrow_at = (borrow_at or "").strip()
+    due_at = (due_at or "").strip()
+    if not (borrower_id and borrower_name and borrow_at and due_at):
+        return False
+    try:
+        with get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO borrow_record (
+                    book_id, book_key, lib_book, borrower_id, borrower_name, borrow_at, due_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    book_snapshot.get("id"),
+                    str(book_snapshot.get("book_key") or "").strip(),
+                    str(book_snapshot.get("lib_book") or "").strip(),
+                    borrower_id,
+                    borrower_name,
+                    borrow_at,
+                    due_at,
+                ),
+            )
+            conn.commit()
+            return True
+    except sqlite3.Error as e:
+        logger.warning("record_borrow_transaction: %s", e)
+        return False
+
+
+def list_borrow_records(borrower_id: str, limit: int = 20) -> List[dict]:
+    borrower_id = (borrower_id or "").strip()
+    if not borrower_id:
+        return []
+    try:
+        with get_connection() as conn:
+            cur = conn.execute(
+                """
+                SELECT book_key, lib_book, borrower_id, borrower_name, borrow_at, due_at, returned_at, created_at
+                FROM borrow_record
+                WHERE borrower_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (borrower_id, limit),
+            )
+            return [_row_to_dict(r) for r in cur.fetchall()]
+    except sqlite3.Error as e:
+        logger.warning("list_borrow_records: %s", e)
         return []
