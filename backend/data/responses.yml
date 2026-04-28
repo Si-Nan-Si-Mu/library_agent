@@ -1,19 +1,31 @@
 version: "3.1"
 responses:
-  utter_faq/ask_open_hours:
-    - text: 本馆开放时间（演示）：周一至周日 8:00–22:00；法定假日以馆方通知为准。入馆请刷卡或登记。
+  utter_faq/ask_pay:
+  - text: 您可以通过说“我要缴费”来进行缴费功能，或者移步到一楼收费处进行缴费。
 
-  utter_faq/ask_borrow_rules:
-    - text: 借阅规则（演示）：本科生可借册数与期限以读者手册为准；请按时归还以免产生滞纳金；预约图书到馆后请在保留期内取书。
+  utter_faq/ask_register:
+  - text: 您可以通过说“我要挂号”来进行挂号就医，或者移步到一楼挂号处进行挂号。
 
-  utter_faq/ask_quiet_zone:
-    - text: 静音区位于三楼东侧，请关闭外放与铃声，交谈请移步讨论区或研讨间预约区域。
+  utter_faq/ask_parking:
+  - text: 我们医院包含停车场，共有300个停车位。停车场位于医院2号楼北面。
 
-  utter_faq/ask_wifi:
-    - text: 馆内提供校园网 Wi-Fi，连接方式请见桌面立牌或咨询台；演示环境不提供真实账号密码。
+  utter_faq/pay_parking:
+  - text: 我们医院停车场的收费为一小时10元，封顶六十元一天。您可以通过扫描停车场的二维码进行缴费。
 
-  utter_faq/ask_return_deadline:
-    - text: 还书日期可在读者证账户或自助借还机查询；续借请在到期前通过网上图书馆或柜台办理（演示说明）。
+  utter_faq/phone_number:
+  - text: 医院客服电话是 010-12345678，您可以拨打该电话咨询挂号、缴费及其他问题。
 
-  utter_faq/ask_seat_rules:
-    - text: 自习座位请勿占座超过 30 分钟无人；离开时请带走个人物品，配合保洁与安全管理。
+  utter_faq/ask_info_hospital:
+  - text: 我们医院是一所综合性三级甲等医院，设有内科、外科、口腔科等多个科室，提供门诊、住院及急诊服务。
+
+  utter_faq/ask_info_doctor:
+  - text: 您可以通过在小程序上的“查询医生”功能查看各科医生信息，同时可以通过说“查询排班”来查看对应医生的排班情况。
+
+  utter_faq/ask_info_canteen:
+  - text: 医院设有餐厅，提供中餐和快餐，餐厅位于门诊楼一楼，您可以从大厅指示牌找到入口。
+
+  utter_faq/ask_position_inpatient:
+  - text: 住院楼位于医院东侧的二号楼，您可以沿主路直行至东侧门口，入口有导医指示牌指引。
+
+  utter_faq/ask_position_stomatology:
+  - text: 口腔科在门诊楼二楼，您可以乘电梯或楼梯上二楼，按照导医牌指引前往即可。

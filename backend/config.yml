@@ -14,12 +14,10 @@ pipeline:
   - name: RegexFeaturizer
 
   # 中文BERT特征（上下文增强）
-  # 临时关闭，先保证本地环境可训练可联调。
-  # 需要启用时可恢复该组件，并将 model_weights 指向可用模型。
-  # - name: LanguageModelFeaturizer
-  #   model_name: "bert"
-  #   model_weights: "bert-base-chinese"
-  #   fine_tune: True
+  - name: LanguageModelFeaturizer
+    model_name: "bert"
+    model_weights: "./models/bert-base-chinese-tf"
+    fine_tune: True
 
   # 词法/句法特征（捕捉上下文）
   - name: LexicalSyntacticFeaturizer
@@ -48,20 +46,18 @@ pipeline:
   - name: ResponseSelector
     epochs: 100
 
-  # 低置信度兜底，避免 REST 返回空消息列表
-  - name: FallbackClassifier
-    threshold: 0.35
-    ambiguity_threshold: 0.1
+  # # 可选：低置信度兜底
+  # - name: FallbackClassifier
+  #   threshold: 0.7
+  #   ambiguity_threshold: 0.1
 
 
 policies:
 
   - name: MemoizationPolicy
 
-  # Windows 环境下模型解压存在兼容问题时，可先关闭 TEDPolicy，
-  # 先保证服务可用，再在 Linux/WSL 环境恢复。
-  # - name: TEDPolicy
-  #   epochs: 100
+  - name: TEDPolicy
+    epochs: 100
 
   - name: RulePolicy
     # enable_fallback_prediction: True

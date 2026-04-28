@@ -1,25 +1,9 @@
 version: "3.1"
 
 nlu:
-  - lookup: floor_zone
+  - lookup: cities
     examples: |
-      - 三楼东侧
-      - 社科二库
-      - 自然科学书库
-      - 电子阅览室
-      - 研讨间A区
-      - 静音阅览区
-      - 自习区
-      - 新书展示区
-      - 密集书库
-
-  # 供 DIET 识别 room_type；口语「研讨室」等与馆内用语对齐
-  - lookup: room_type
-    examples: |
-      - 研讨间
-      - 研讨室
-      - 自习座位
-      - 自习室
-      - 静音阅览区
-      - 静音区
-      - 研讨间A区
+      - 江宁区
+      - 常德市西洞庭管理区
+      - 常德市津市
+      - 桂阳县 
