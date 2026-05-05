@@ -55,16 +55,6 @@ _DATA_INQUIRY_SYSTEM = (
 )
 
 
-_READING_RECOMMEND_SYSTEM = (
-    "你是高校图书馆「阅读推荐」助手（演示环境）。"
-    "【馆藏事实】段落中的索书号、位置与在架/已借出状态必须严格按所给数据书写，不得改写、不得编造。"
-    "【知识图谱候选】若标注为演示库无匹配，则不得为其填写本馆索书号或架位。"
-    "输出结构：先写「本馆馆藏·在架可借」，再写「本馆馆藏·已借出」，最后写「扩展推荐（非馆藏或仅图谱）」；"
-    "每一条都要明确写出是否在演示库中、是否可借（在架可借 / 已借出）。"
-    "篇幅适中，条理清晰；不要使用括号表达情绪。"
-)
-
-
 def _circulation_label(row: Dict[str, Any]) -> str:
     return "在架可借" if int(row.get("is_borrow") or 0) == 0 else "已借出"
 
@@ -82,85 +72,58 @@ def _match_catalog_title(catalog_rows: List[dict], graph_title: str) -> Optional
     return None
 
 
-def _build_reading_recommend_payload(
+def _reading_recommend_custom_message(
     topic: str, catalog_rows: List[dict], graph_rows: List[dict]
-) -> str:
+) -> Dict[str, Any]:
+    """供前端表格渲染的结构化载荷（事实以 SQLite / 图谱为准，避免大段 LLM 正文）。"""
     on_shelf = [r for r in catalog_rows if int(r.get("is_borrow") or 0) == 0]
     borrowed = [r for r in catalog_rows if int(r.get("is_borrow") or 0) == 1]
 
-    def fmt_block(rows: List[dict], label: str) -> str:
-        if not rows:
-            return f"（无{label}）"
-        lines = []
-        for r in rows:
-            pos = (r.get("book_pos") or "").strip() or "未定"
-            lines.append(
-                f"- 《{r['lib_book']}》 索书号 {r['book_key']}  位置 {pos}  状态 {_circulation_label(r)}"
-            )
-        return "\n".join(lines)
+    def cat_row(r: dict) -> Dict[str, Any]:
+        return {
+            "book_title": str(r.get("lib_book") or "").strip(),
+            "call_number": str(r.get("book_key") or "").strip(),
+            "book_pos": (str(r.get("book_pos") or "").strip() or "未定"),
+            "status": _circulation_label(r),
+        }
 
-    graph_lines: List[str] = []
+    graph_out: List[Dict[str, Any]] = []
     for gr in graph_rows:
         title = (gr.get("title") or "").strip()
         if not title:
             continue
-        rating = gr.get("rating")
-        sm = (gr.get("summary") or "").strip()
         m = _match_catalog_title(catalog_rows, title)
-        if m:
-            graph_lines.append(
-                f"- 《{title}》 图谱条目；与本馆记录对应：索书号 {m['book_key']}  位置 "
-                f"{(m.get('book_pos') or '').strip() or '未定'}  状态 {_circulation_label(m)}"
-            )
-        else:
-            rate_s = f" 评分 {rating}" if rating is not None else ""
-            sm_short = sm[:120] + ("…" if len(sm) > 120 else "") if sm else ""
-            extra = f" 摘要 {sm_short}" if sm_short else ""
-            graph_lines.append(f"- 《{title}》{rate_s}（演示图谱；演示库无题名匹配馆藏）{extra}")
+        sm = (gr.get("summary") or "").strip()
+        sm_short = (sm[:180] + "…") if len(sm) > 180 else sm
+        rating = gr.get("rating")
+        hint_parts: List[str] = []
+        if rating is not None:
+            hint_parts.append(f"评分 {rating}")
+        if sm_short:
+            hint_parts.append(sm_short)
+        graph_out.append(
+            {
+                "book_title": title,
+                "call_number": str(m["book_key"]).strip() if m else "—",
+                "book_pos": (str(m.get("book_pos") or "").strip() or "未定") if m else "—",
+                "status": _circulation_label(m) if m else "图谱候选（演示库无题名匹配）",
+                "catalog_match": bool(m),
+                "hint": "；".join(hint_parts) if hint_parts else "—",
+            }
+        )
 
-    graph_block = "\n".join(graph_lines) if graph_lines else "（无知识图谱候选）"
-
-    return (
-        f"用户主题：{topic}\n\n"
-        f"【馆藏事实 — 在架可借】\n{fmt_block(on_shelf, '在架可借')}\n\n"
-        f"【馆藏事实 — 已借出】\n{fmt_block(borrowed, '已借出')}\n\n"
-        f"【知识图谱候选】\n{graph_block}\n\n"
-        "请按系统角色中的结构输出，不得省略状态说明。"
-    )
-
-
-def _fallback_reading_recommend_text(
-    topic: str, catalog_rows: List[dict], graph_rows: List[dict]
-) -> str:
-    parts: List[str] = [f"与「{topic}」相关的阅读推荐（演示馆藏 + 图谱，仅供参考）：\n"]
-    on_shelf = [r for r in catalog_rows if int(r.get("is_borrow") or 0) == 0]
-    borrowed = [r for r in catalog_rows if int(r.get("is_borrow") or 0) == 1]
-    if on_shelf:
-        parts.append("【本馆·在架可借】")
-        for r in on_shelf[:15]:
-            parts.append(
-                f"- 《{r['lib_book']}》 {r['book_key']} · {r.get('book_pos') or '位置未定'} · 在架可借"
-            )
-        parts.append("")
-    if borrowed:
-        parts.append("【本馆·已借出】")
-        for r in borrowed[:15]:
-            parts.append(
-                f"- 《{r['lib_book']}》 {r['book_key']} · {r.get('book_pos') or '位置未定'} · 已借出"
-            )
-        parts.append("")
-    if graph_rows:
-        parts.append("【扩展·图谱（可能非馆藏）】")
-        for gr in graph_rows[:8]:
-            title = (gr.get("title") or "").strip()
-            m = _match_catalog_title(catalog_rows, title)
-            tag = "（与上表馆藏为同一本书）" if m else "（演示库未收录该书目）"
-            parts.append(f"- 《{title}》{tag}")
-        parts.append("")
-    parts.append(
-        "可直接回复「借这本」或完整书名继续借阅；已借出书无法作为在架可借办理。"
-    )
-    return "\n".join(parts)
+    return {
+        "payload_type": "reading_recommend",
+        "topic": topic,
+        "intro": (
+            f"主题「{topic}」｜以下为演示库检索结果，分表列出在架、已借出与图谱扩展。"
+            "在架图书可说「借书」后输入书名办理借阅。"
+        ),
+        "on_shelf_rows": [cat_row(r) for r in on_shelf[:40]],
+        "borrowed_rows": [cat_row(r) for r in borrowed[:40]],
+        "graph_rows": graph_out[:12],
+        "footnote": "馆藏与在架状态以本表与演示库为准；图谱条目可能不在本馆演示库中。",
+    }
 
 
 def _deepseek_multi_intent_system() -> str:
@@ -948,13 +911,9 @@ class ActionReadingRecommend(Action):
                 SlotSet("last_recommended_candidates", None),
             ]
 
-        payload = _build_reading_recommend_payload(topic, catalog_rows, graph_rows)
-        content, _err = deepseek_chat(payload, system=_READING_RECOMMEND_SYSTEM)
-        if content:
-            suffix = "（以上内容由大模型整理；馆藏状态以演示库为准。）"
-            dispatcher.utter_message(text=f"{content}\n\n{suffix}")
-        else:
-            dispatcher.utter_message(text=_fallback_reading_recommend_text(topic, catalog_rows, graph_rows))
+        dispatcher.utter_message(
+            json_message=_reading_recommend_custom_message(topic, catalog_rows, graph_rows)
+        )
 
         on_shelf = [r for r in catalog_rows if int(r.get("is_borrow") or 0) == 0]
         borrowed = [r for r in catalog_rows if int(r.get("is_borrow") or 0) == 1]

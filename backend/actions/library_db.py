@@ -5,7 +5,7 @@ import logging
 import os
 import sqlite3
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from .book_catalog_seed import generate_bulk_rows, minimum_catalog_size
 
@@ -50,6 +50,7 @@ _SEED_ROWS: List[Tuple[str, str, str, int]] = [
     ("TP311.5/PY-01", "Python 程序设计", "科技库 T-03", 0),
     ("TP311/DL-01", "深度学习入门", "科技库 T-05", 0),
     ("I247.5/XX-01", "平凡的世界", "文学库 B-10", 0),
+    ("I313/CCK-01", "川端康成：雪国（节选导读）", "文学库 J-03", 0),
 ]
 
 
@@ -496,6 +497,77 @@ def get_catalog_overview(limit: int = 12) -> dict:
         return {"total": 0, "on_shelf": 0, "borrowed": 0, "rows": []}
 
 
+# 阅读推荐：主题 → 检索词（越靠前越优先匹配题名）
+_TOPIC_SEARCH_EXPANSIONS: Dict[str, List[str]] = {
+    "日本文学": [
+        "日本文学",
+        "日本",
+        "川端",
+        "夏目",
+        "村上",
+        "太宰",
+        "芥川",
+        "东野",
+        "江户川",
+        "松本清张",
+        "推理小说",
+    ],
+    "英国文学": ["英国文学", "英国", "莎士比亚", "狄更斯", "简·奥斯汀", "勃朗特"],
+    "美国文学": ["美国文学", "美国", "海明威", "马克·吐温", "福克纳"],
+    "法国文学": ["法国文学", "法国", "雨果", "巴尔扎克", "加缪"],
+    "俄国文学": ["俄国文学", "俄罗斯文学", "俄国", "俄罗斯", "托尔斯泰", "陀思妥耶夫斯基", "契诃夫", "普希金"],
+    "科幻": ["科幻", "银河帝国", "基地", "三体", "火星"],
+    "推理": ["推理", "悬疑", "侦探"],
+    "诗歌": ["诗歌", "诗集", "诗词"],
+}
+
+
+def expand_topic_search_terms(topic: str) -> List[str]:
+    """按用户主题展开 SQLite LIKE 检索词；保留顺序并去重。"""
+    t = (topic or "").strip()
+    if not t:
+        return []
+    keys = sorted(_TOPIC_SEARCH_EXPANSIONS.keys(), key=len, reverse=True)
+    for key in keys:
+        if key in t or (len(t) <= len(key) + 2 and t in key):
+            head = key if key in t else t
+            rest = [x for x in _TOPIC_SEARCH_EXPANSIONS[key] if x != head]
+            terms = [head] + rest
+            seen: set[str] = set()
+            out: List[str] = []
+            for x in terms:
+                if x and x not in seen:
+                    seen.add(x)
+                    out.append(x)
+            return out
+    return [t]
+
+
+def _rank_rows_for_reading_topic(rows: List[dict], terms: List[str], raw_topic: str) -> List[dict]:
+    """按检索词命中优先级排序；在架优先于已借出；弱化明显跑题条目。"""
+
+    def score_row(r: dict) -> Tuple[int, int, str]:
+        title = str(r.get("lib_book") or "")
+        best = 999
+        for i, term in enumerate(terms):
+            if term and term in title:
+                best = min(best, i)
+        if best == 999:
+            best = 1000
+        # 用户要日本相关时，不含「日本」的中国古典/明确中国文学倾向的条目降权
+        if "日本" in raw_topic:
+            if "日本" not in title and any(
+                k in title for k in ("红楼梦", "西游记", "水浒传", "三国演义", "中国文学史")
+            ):
+                best += 120
+            if "日本" not in title and "中国" in title and "外国" not in title and "世界" not in title:
+                best += 40
+        borrow = int(r.get("is_borrow") or 0)
+        return (best, borrow, title)
+
+    return sorted(rows, key=score_row)
+
+
 def recommend_on_shelf(topic: Optional[str], limit: int = 5) -> List[dict]:
     """按正题名模糊匹配在架图书。"""
     topic = (topic or "").strip()
@@ -522,27 +594,40 @@ def recommend_on_shelf(topic: Optional[str], limit: int = 5) -> List[dict]:
 def catalog_search_by_topic(topic: Optional[str], limit: int = 50) -> List[dict]:
     """
     按题名模糊匹配馆藏（含在架与已借出），供阅读推荐与 LLM 事实上下文。
-    在架（is_borrow=0）排在已借出之前。
+    支持主题词扩展与相关性排序；在架优先于已借出。
     """
     topic = (topic or "").strip()
     if not topic:
         return []
+    terms = expand_topic_search_terms(topic)
+    if not terms:
+        terms = [topic]
     try:
         with get_connection() as conn:
+            placeholders = " OR ".join(["lib_book LIKE ?" for _ in terms])
+            like_params = [f"%{t}%" for t in terms]
+            fetch_cap = min(400, max(int(limit) * 8, 80))
             cur = conn.execute(
-                """
+                f"""
                 SELECT book_key, lib_book, book_pos, is_borrow
                 FROM library_book
-                WHERE lib_book LIKE ?
-                ORDER BY is_borrow ASC, book_key
+                WHERE {placeholders}
                 LIMIT ?
                 """,
-                (f"%{topic}%", int(limit)),
+                (*like_params, fetch_cap),
             )
-            return [_row_to_dict(r) for r in cur.fetchall()]
+            raw_rows = [_row_to_dict(r) for r in cur.fetchall()]
     except sqlite3.Error as e:
         logger.warning("catalog_search_by_topic: %s", e)
         return []
+
+    by_key: Dict[str, dict] = {}
+    for r in raw_rows:
+        k = str(r.get("book_key") or "")
+        if k and k not in by_key:
+            by_key[k] = r
+    ranked = _rank_rows_for_reading_topic(list(by_key.values()), terms, topic)
+    return ranked[: int(limit)]
 
 
 def list_catalog_books(limit: int = 500) -> List[dict]:

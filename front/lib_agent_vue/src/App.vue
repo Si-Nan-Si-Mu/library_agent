@@ -68,7 +68,13 @@
 
       <section ref="chatRef" class="chat-list">
         <div v-for="item in messages" :key="item.id" class="row" :class="item.role">
-          <div class="bubble">
+          <div
+            class="bubble"
+            :class="{
+              'bubble-pending': item.kind === 'pending',
+              'bubble-wide': item.kind === 'reading_recommend',
+            }"
+          >
             <template v-if="item.kind === 'catalog'">
               <div class="catalog-panel">
                 <div class="catalog-header">
@@ -318,6 +324,94 @@
                 </div>
               </div>
             </template>
+            <template v-else-if="item.kind === 'reading_recommend'">
+              <div class="rr-panel">
+                <p class="rr-intro">{{ item.readingPayload.intro }}</p>
+                <div class="rr-topic-pill">检索主题：{{ item.readingPayload.topic }}</div>
+
+                <div class="rr-sep" role="separator" aria-hidden="true">━━━━━</div>
+                <h4 class="rr-section-title">本馆馆藏 · 在架可借</h4>
+                <table class="rr-table">
+                  <thead>
+                    <tr>
+                      <th>书名</th>
+                      <th>索书号</th>
+                      <th>馆藏位置</th>
+                      <th>状态</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(row, idx) in item.readingPayload.on_shelf_rows" :key="`rr-os-${row.call_number}-${idx}`">
+                      <td>《{{ row.book_title }}》</td>
+                      <td>{{ row.call_number }}</td>
+                      <td>{{ row.book_pos }}</td>
+                      <td><span class="rr-badge rr-badge-ok">{{ row.status }}</span></td>
+                    </tr>
+                    <tr v-if="!item.readingPayload.on_shelf_rows.length">
+                      <td colspan="4" class="rr-empty">暂无在架记录</td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                <div class="rr-sep" role="separator" aria-hidden="true">━━━━━</div>
+                <h4 class="rr-section-title">本馆馆藏 · 已借出</h4>
+                <table class="rr-table">
+                  <thead>
+                    <tr>
+                      <th>书名</th>
+                      <th>索书号</th>
+                      <th>馆藏位置</th>
+                      <th>状态</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(row, idx) in item.readingPayload.borrowed_rows" :key="`rr-bw-${row.call_number}-${idx}`">
+                      <td>《{{ row.book_title }}》</td>
+                      <td>{{ row.call_number }}</td>
+                      <td>{{ row.book_pos }}</td>
+                      <td><span class="rr-badge rr-badge-out">{{ row.status }}</span></td>
+                    </tr>
+                    <tr v-if="!item.readingPayload.borrowed_rows.length">
+                      <td colspan="4" class="rr-empty">暂无已借出记录</td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                <div class="rr-sep" role="separator" aria-hidden="true">━━━━━</div>
+                <h4 class="rr-section-title">扩展推荐（知识图谱 / 可能非本馆）</h4>
+                <table class="rr-table rr-table-graph">
+                  <thead>
+                    <tr>
+                      <th>题名</th>
+                      <th>索书号</th>
+                      <th>位置</th>
+                      <th>说明</th>
+                      <th>状态</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(row, idx) in item.readingPayload.graph_rows" :key="`rr-gr-${row.call_number}-${idx}`">
+                      <td>《{{ row.book_title }}》</td>
+                      <td>{{ row.call_number }}</td>
+                      <td>{{ row.book_pos }}</td>
+                      <td class="rr-hint-cell">{{ row.hint }}</td>
+                      <td>
+                        <span
+                          class="rr-badge"
+                          :class="row.catalog_match ? 'rr-badge-ok' : 'rr-badge-graph'"
+                          >{{ row.status }}</span
+                        >
+                      </td>
+                    </tr>
+                    <tr v-if="!item.readingPayload.graph_rows.length">
+                      <td colspan="5" class="rr-empty">暂无图谱候选或未配置 Neo4j</td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                <p class="rr-footnote">{{ item.readingPayload.footnote }}</p>
+              </div>
+            </template>
             <template v-else-if="item.kind === 'borrow_form'">
               <div class="borrow-form-panel">
                 <div class="borrow-form-title">借阅信息填写</div>
@@ -441,6 +535,12 @@
                   </div>
                   <div v-else class="batch-result-row">无</div>
                 </div>
+              </div>
+            </template>
+            <template v-else-if="item.kind === 'pending'">
+              <div class="bot-pending" aria-live="polite">
+                <span class="bot-pending-label">{{ item.statusText }}</span>
+                <span class="bot-pending-dots" aria-hidden="true" />
               </div>
             </template>
             <template v-else>{{ item.text }}</template>
@@ -761,6 +861,105 @@ export default {
           chatEl.scrollTop = chatEl.scrollHeight;
         }
       });
+    },
+    pushPendingBotMessage(statusText) {
+      const id = `${Date.now()}-${Math.random()}`;
+      this.messages.push({
+        id,
+        role: "bot",
+        kind: "pending",
+        statusText: statusText || "查询中…",
+        text: "",
+      });
+      this.$nextTick(() => {
+        const chatEl = this.$refs.chatRef;
+        if (chatEl) {
+          chatEl.scrollTop = chatEl.scrollHeight;
+        }
+      });
+      return id;
+    },
+    updateMessageById(id, patch) {
+      if (!id || !patch || typeof patch !== "object") return;
+      const i = this.messages.findIndex((m) => m && m.id === id);
+      if (i < 0) return;
+      const cur = this.messages[i];
+      this.messages.splice(i, 1, { ...cur, ...patch });
+    },
+    removeMessageById(id) {
+      if (!id) return;
+      const i = this.messages.findIndex((m) => m && m.id === id);
+      if (i < 0) return;
+      this.messages.splice(i, 1);
+    },
+    scrollChatToBottom() {
+      this.$nextTick(() => {
+        const chatEl = this.$refs.chatRef;
+        if (chatEl) {
+          chatEl.scrollTop = chatEl.scrollHeight;
+        }
+      });
+    },
+    /** 将一轮 Rasa 返回中的纯文本合并为一条；custom 书目表按出现顺序展示，文本统一放在其后。 */
+    applyRasaResponseMessages(data, muteBotMessages) {
+      if (!Array.isArray(data) || !data.length) {
+        return [];
+      }
+      const textChunks = [];
+      const actions = [];
+      for (let index = 0; index < data.length; index += 1) {
+        const item = data[index];
+        const payload =
+          item && item.custom && typeof item.custom === "object" ? item.custom : item;
+        if (payload && payload.payload_type === "reading_recommend") {
+          actions.push({ type: "reading_recommend", payload });
+          continue;
+        }
+        if (payload && payload.payload_type === "borrow_catalog" && Array.isArray(payload.rows)) {
+          actions.push({ type: "borrow_catalog", payload });
+          continue;
+        }
+        if (payload && payload.payload_type === "return_catalog" && Array.isArray(payload.rows)) {
+          actions.push({ type: "return_catalog", payload });
+          continue;
+        }
+        if (item && typeof item.text === "string" && item.text.trim()) {
+          textChunks.push(item.text.trim());
+        } else if (this.debugLog && item) {
+          this.logRasa(`← 消息项 #${index}（无 text，完整对象）`, item);
+        }
+      }
+      const mergedText =
+        textChunks.length > 0 ? textChunks.join("\n\n") : "";
+
+      const runCatalog = () => {
+        for (const a of actions) {
+          const p = a.payload;
+          if (a.type === "borrow_catalog") {
+            this.borrowCatalogRows = p.rows;
+            this.currentBorrowPolicy = p.borrow_policy || null;
+            this.pushCatalogMessage(p.rows, p.borrow_policy || null);
+          } else if (a.type === "return_catalog") {
+            this.returnCatalogRows = p.rows;
+            this.currentReturnPolicy = p.return_policy || null;
+            this.pushReturnCatalogMessage(p.rows, p.return_policy || null);
+          } else if (a.type === "reading_recommend") {
+            this.pushReadingRecommendMessage(p);
+          }
+        }
+      };
+
+      runCatalog();
+      if (!muteBotMessages && mergedText) {
+        this.pushMessage("bot", mergedText);
+      }
+      if (this.debugLog && muteBotMessages) {
+        textChunks.forEach((t, index) => {
+          this.logRasa(`← 静默轮次 文本 #${index}`, t);
+        });
+      }
+      this.scrollChatToBottom();
+      return data;
     },
     nowLocalDatetime() {
       const d = new Date();
@@ -1129,6 +1328,25 @@ export default {
         }
       });
     },
+    pushReadingRecommendMessage(payload) {
+      const p = payload && typeof payload === "object" ? payload : {};
+      const readingPayload = {
+        topic: typeof p.topic === "string" ? p.topic : "",
+        intro: typeof p.intro === "string" ? p.intro : "",
+        on_shelf_rows: Array.isArray(p.on_shelf_rows) ? p.on_shelf_rows : [],
+        borrowed_rows: Array.isArray(p.borrowed_rows) ? p.borrowed_rows : [],
+        graph_rows: Array.isArray(p.graph_rows) ? p.graph_rows : [],
+        footnote: typeof p.footnote === "string" ? p.footnote : "",
+      };
+      this.messages.push({
+        id: `${Date.now()}-${Math.random()}`,
+        role: "bot",
+        kind: "reading_recommend",
+        text: "",
+        readingPayload,
+      });
+      this.scrollChatToBottom();
+    },
     catalogFiltered(item) {
       const rows = Array.isArray(item.rows) ? item.rows : [];
       const q = (item.catalogQuery || "").toLowerCase();
@@ -1167,6 +1385,15 @@ export default {
       const opts = options && typeof options === "object" ? options : {};
       const muteBotMessages = !!opts.muteBotMessages;
 
+      let pendingId = null;
+      let thinkTimer = null;
+      const clearThinkTimer = () => {
+        if (thinkTimer) {
+          clearTimeout(thinkTimer);
+          thinkTimer = null;
+        }
+      };
+
       const requestBody = {
         sender: this.senderId,
         message: userText,
@@ -1190,6 +1417,16 @@ export default {
       };
 
       try {
+        if (!muteBotMessages) {
+          pendingId = this.pushPendingBotMessage("查询中…");
+          thinkTimer = setTimeout(() => {
+            const msg = this.messages.find((m) => m.id === pendingId);
+            if (msg && msg.kind === "pending") {
+              this.updateMessageById(pendingId, { statusText: "思考中…" });
+            }
+          }, 1100);
+        }
+
         this.logRasa("→ 请求", {
           url: this.endpoint,
           method: "POST",
@@ -1226,6 +1463,8 @@ export default {
         this.logRasa("← 响应体（原始字符串）", rawText);
 
         if (!response.ok) {
+          clearThinkTimer();
+          this.removeMessageById(pendingId);
           this.exchanges.push(exchange);
           this.pushMessage("system", `请求失败：HTTP ${response.status}`);
           this.logRasa("← 非 2xx，未解析为消息列表", { rawText });
@@ -1237,6 +1476,8 @@ export default {
           data = rawText ? JSON.parse(rawText) : [];
           exchange.response.parsed = data;
         } catch (parseErr) {
+          clearThinkTimer();
+          this.removeMessageById(pendingId);
           exchange.response.parseError = {
             name: parseErr && parseErr.name ? parseErr.name : "Error",
             message: parseErr && parseErr.message ? parseErr.message : String(parseErr),
@@ -1268,6 +1509,8 @@ export default {
 
         // Rasa REST 正常为数组；若为空多为未加载模型、策略未命中或 NLU 未识别意图
         if (!Array.isArray(data) || data.length === 0) {
+          clearThinkTimer();
+          this.removeMessageById(pendingId);
           if (!muteBotMessages) {
             this.pushMessage(
               "bot",
@@ -1277,26 +1520,20 @@ export default {
           return [];
         }
 
-        data.forEach((item, index) => {
-          const payload = item && item.custom && typeof item.custom === "object" ? item.custom : item;
-          if (payload && payload.payload_type === "borrow_catalog" && Array.isArray(payload.rows)) {
-            this.borrowCatalogRows = payload.rows;
-            this.currentBorrowPolicy = payload.borrow_policy || null;
-            this.pushCatalogMessage(payload.rows, payload.borrow_policy || null);
+        clearThinkTimer();
+        if (!muteBotMessages && pendingId) {
+          const msg = this.messages.find((m) => m.id === pendingId);
+          if (msg && msg.kind === "pending") {
+            this.updateMessageById(pendingId, { statusText: "回复中…" });
           }
-          if (payload && payload.payload_type === "return_catalog" && Array.isArray(payload.rows)) {
-            this.returnCatalogRows = payload.rows;
-            this.currentReturnPolicy = payload.return_policy || null;
-            this.pushReturnCatalogMessage(payload.rows, payload.return_policy || null);
-          }
-          if (!muteBotMessages && item && typeof item.text === "string" && item.text.trim()) {
-            this.pushMessage("bot", item.text);
-          } else if (this.debugLog && item) {
-            this.logRasa(`← 消息项 #${index}（无 text，完整对象）`, item);
-          }
-        });
+          await this.$nextTick();
+        }
+        this.removeMessageById(pendingId);
+        this.applyRasaResponseMessages(data, muteBotMessages);
         return data;
       } catch (error) {
+        clearThinkTimer();
+        this.removeMessageById(pendingId);
         this.exchanges.push({
           id: `${Date.now()}-${Math.random()}`,
           at: new Date().toISOString(),
@@ -1790,10 +2027,151 @@ body {
   border-bottom-left-radius: 4px;
 }
 
+.row.bot .bubble.bubble-pending {
+  background: #dce7f7;
+  border: 1px dashed #93b4e8;
+}
+
+.bot-pending {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.bot-pending-label {
+  font-weight: 600;
+  color: #1d4ed8;
+}
+
+.bot-pending-dots::after {
+  content: "…";
+  display: inline-block;
+  animation: rasa-pending-pulse 1s ease-in-out infinite;
+}
+
+@keyframes rasa-pending-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 .row.system .bubble {
   background: #f2f4f7;
   color: #667085;
   border-bottom-left-radius: 4px;
+}
+
+.row.bot .bubble.bubble-wide {
+  max-width: min(96%, 920px);
+}
+
+.rr-panel {
+  width: 100%;
+}
+
+.rr-intro {
+  font-size: 13px;
+  color: #374151;
+  margin: 0 0 8px;
+  line-height: 1.55;
+  white-space: normal;
+}
+
+.rr-topic-pill {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  padding: 2px 10px;
+  border-radius: 999px;
+  margin-bottom: 10px;
+}
+
+.rr-sep {
+  text-align: center;
+  letter-spacing: 0.25em;
+  color: #94a3b8;
+  font-size: 11px;
+  margin: 14px 0 10px;
+}
+
+.rr-section-title {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.rr-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-bottom: 4px;
+  table-layout: fixed;
+}
+
+.rr-table th,
+.rr-table td {
+  border: 1px solid #cbd5e1;
+  padding: 6px 8px;
+  vertical-align: top;
+  word-break: break-word;
+}
+
+.rr-table th {
+  background: #f1f5f9;
+  color: #334155;
+  text-align: left;
+}
+
+.rr-empty {
+  text-align: center;
+  color: #64748b;
+  font-style: italic;
+}
+
+.rr-hint-cell {
+  color: #475569;
+  font-size: 11px;
+  white-space: normal;
+}
+
+.rr-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.rr-badge-ok {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.rr-badge-out {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.rr-badge-graph {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+.rr-footnote {
+  margin: 12px 0 0;
+  font-size: 11px;
+  color: #64748b;
+  white-space: normal;
 }
 
 .composer {

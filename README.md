@@ -16,7 +16,8 @@
 - 数据层使用 `SQLite` 演示库，支持在架/已借状态切换与基础书目检索。
 - 前端为 Vue 聊天页，通过 REST webhook 对接 `Rasa API`。
 - 当前定位为演示与联调工程，可逐步扩展到真实 OPAC/流通/预约系统。
-- DeepSeek 仅用于 `data_inquiry` 场景的生成式说明；借还书、推荐阅读、书籍总览等主流程由规则 + SQLite/Neo4j 数据驱动。
+- DeepSeek 仅用于 `data_inquiry` 场景的生成式说明；**推荐阅读**由 Action 下发 `reading_recommend` 结构化载荷（SQLite + 可选 Neo4j），Vue 以**分节表格**展示；借还书、书籍总览等主流程由规则 + SQLite 数据驱动。
+- 前端对普通 `text` 回复合并为单条气泡，并在等待 Rasa 时显示「查询中 / 思考中 / 回复中」占位（`App.vue`）。
 
 ## 系统架构与智能体界定
 
@@ -86,7 +87,7 @@ library_agent/
 
 扩展路线（Neo4j / GraphRAG 等）见 [**README_v2.md**](README_v2.md)。
 
-**知识图谱（主工程 `backend/`）**：`backend/kg_module/`（CSV 导入、Schema）、`backend/actions/neo4j_graph.py`；`reading_recommend` 在配置 `NEO4J_PASSWORD` 时优先查 Neo4j，否则仍用 SQLite。本体规划见 [docs/kg_ontology_v2.md](docs/kg_ontology_v2.md)。
+**知识图谱（主工程 `backend/`）**：`backend/kg_module/`（CSV 导入、Schema）、`backend/actions/neo4j_graph.py`；`reading_recommend` 在配置 `NEO4J_PASSWORD` 时拉取图谱候选并在前端第三张表展示，否则该表为空；馆藏事实始终来自 SQLite。本体规划见 [docs/kg_ontology_v2.md](docs/kg_ontology_v2.md)。
 
 **容器部署**：仓库根目录复制 `.env.example` 为 `.env` 并填写 `DEEPSEEK_API_KEY` 后，执行 `docker compose -f deploy/docker-compose.yml up --build`。Rasa 使用 `backend/endpoints.docker.yml` 连接名为 `actions` 的服务；未配置密钥时「数据类咨询」仍回退为固定话术。
 
@@ -100,6 +101,7 @@ library_agent/
 
 | 日期 | 摘要 |
 | ---- | ---- |
+| 2026-05-05 | 推荐阅读改为 `reading_recommend` 结构化载荷 + Vue 分节表格；`library_db` 主题检索扩展/排序与演示种子增补；前端合并多段文本、等待态与宽气泡样式；同步 README/操作指引说明。 |
 | 2026-05-05 | README 增补「系统架构与智能体界定」：分层职责、工具调用式智能体说明、生成式边界与逻辑架构图。 |
 | 2026-04-24 | 删除已合并的 `library_rag_backend/` 快照目录，并移除 `rag-rasa` 远程；图谱与 RAG 能力以 `backend/kg_module` 为准。 |
 | 2026-04-24 | 文档统一：补充「快速开始」「Action 代码变更需重启双服务」与 DeepSeek 适用边界说明；操作指引新增推荐后借第 N 本与相关排障。 |
