@@ -6,7 +6,7 @@
 
 | 文件前缀 | 建议映射到 Rasa intent | 说明 |
 |----------|------------------------|------|
-| 01_greet | `greet` | 含 `General/greet` |
+| 01_greet | `greet` | **仅** `General/greet`、且无 `Inform`/`Request`/`Select`（纯寒暄）；复合句已进 05 |
 | 02_goodbye | `goodbye` | 含 `General/bye` 或结束会话类感谢 |
 | 03_thanks_only | `goodbye` 或删除 | 纯感谢；可改写成「谢谢，先结束」或丢弃 |
 | 04_reading_recommend | `reading_recommend` | 含「推荐」等；改写成图书推荐说法 |

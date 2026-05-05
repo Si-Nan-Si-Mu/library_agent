@@ -83,6 +83,10 @@ def bucket_for(rec: Dict[str, Any]) -> Optional[str]:
     if "推荐" in text or re.search(r"有什么好的建议|给?我介绍", text):
         return "04_reading_recommend"
 
+    # 复合句：问候 + 具体约束/请求，业务意图在后半段，不能整句当 greet
+    if types & {"Inform", "Request", "Select"}:
+        return "05_request_inform_query"
+
     if has_general(a, "greet"):
         return "01_greet"
     if has_general(a, "bye"):
@@ -91,9 +95,6 @@ def bucket_for(rec: Dict[str, Any]) -> Optional[str]:
         if re.search(r"没有|没了|不问了|先到这|先这样|没问题了", text):
             return "02_goodbye"
         return "03_thanks_only"
-
-    if "Request" in types or "Select" in types:
-        return "05_request_inform_query"
 
     if re.search(r"(总共|一共|有哪些|列出|书目|馆藏)", text):
         return "10_book_overview_hint"
@@ -121,7 +122,7 @@ def write_readme(out_dir: Path) -> None:
 
 | 文件前缀 | 建议映射到 Rasa intent | 说明 |
 |----------|------------------------|------|
-| 01_greet | `greet` | 含 `General/greet` |
+| 01_greet | `greet` | **仅** `General/greet`、且无 `Inform`/`Request`/`Select`（纯寒暄）；复合句已进 05 |
 | 02_goodbye | `goodbye` | 含 `General/bye` 或结束会话类感谢 |
 | 03_thanks_only | `goodbye` 或删除 | 纯感谢；可改写成「谢谢，先结束」或丢弃 |
 | 04_reading_recommend | `reading_recommend` | 含「推荐」等；改写成图书推荐说法 |
