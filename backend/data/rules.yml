@@ -95,7 +95,7 @@ rules:
     steps:
       - intent: nlu_fallback
       - action: action_deactivate_loop
-      - action: utter_default
+      - action: action_nlu_fallback_router
 
   - rule: FAQ
     condition:

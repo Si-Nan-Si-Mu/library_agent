@@ -35,6 +35,13 @@ except Exception:  # pragma: no cover - fallback for IDE/static analysis env
     CollectingDispatcher = Any
 
 from .deepseek_client import deepseek_chat
+from .intent_coverage import (
+    borrow_policy_anchor,
+    build_deepseek_user_payload,
+    nlu_intent_signals,
+    score_kb_entries,
+    should_treat_as_compound_fallback,
+)
 from .neo4j_graph import recommend_books_by_topic as neo4j_recommend_by_topic
 
 _DATA_INQUIRY_SYSTEM = (
@@ -45,6 +52,20 @@ _DATA_INQUIRY_SYSTEM = (
     "回答使用用户相对熟悉的语言，条理清晰，篇幅适中。"
     "不要使用任何括号表示情绪或动作。"
 )
+
+
+def _deepseek_multi_intent_system() -> str:
+    """意图覆盖 + 检索场景下的 system 提示（借还办理边界）。"""
+    anchor = borrow_policy_anchor()
+    extra = (
+        "用户一句话可能涉及多个主题；请分点简要回应。"
+        "涉及实际借书、还书「办理」时，只引导用户在本对话中说「借书」或「还书」进入系统流程，不要声称已代为办理或改变借阅规则。"
+    )
+    parts = [_DATA_INQUIRY_SYSTEM]
+    if anchor:
+        parts.append(anchor)
+    parts.append(extra)
+    return "\n\n".join(parts)
 
 
 def _normalize_title_from_text(text: Any) -> str:
@@ -931,7 +952,7 @@ class ActionBorrowRecordQuery(Action):
 
 
 class ActionDataInquiry(Action):
-    """数据类咨询：优先调用 DeepSeek 生成说明；未配置密钥或调用失败时回退到固定话术。"""
+    """数据类咨询：意图覆盖检索 + Rasa 次优意图 + DeepSeek 综合生成；失败时回退固定话术。"""
 
     def name(self) -> Text:
         return "action_data_inquiry"
@@ -947,9 +968,49 @@ class ActionDataInquiry(Action):
             dispatcher.utter_message(response="utter_data_inquiry")
             return []
 
-        content, _err = deepseek_chat(user_text, system=_DATA_INQUIRY_SYSTEM)
+        kb_scored = score_kb_entries(user_text)
+        nlu_signals = nlu_intent_signals(tracker.latest_message)
+        payload = build_deepseek_user_payload(user_text, kb_scored, nlu_signals)
+        content, _err = deepseek_chat(payload, system=_deepseek_multi_intent_system())
         if not content:
             dispatcher.utter_message(response="utter_data_inquiry")
+            return []
+
+        suffix = "（以上内容由大模型生成；演示环境无接入实时统计，请勿作为官方数据依据。）"
+        dispatcher.utter_message(text=f"{content}\n\n{suffix}")
+        return []
+
+
+class ActionNluFallbackRouter(Action):
+    """
+    nlu_fallback：仅对「多主题/复合问」走意图覆盖 + DeepSeek；其余仍 utter_default。
+    不替代借还书表单与业务 actions。
+    """
+
+    def name(self) -> Text:
+        return "action_nlu_fallback_router"
+
+    def run(
+        self,
+        dispatcher: CollectingDispatcher,
+        tracker: Tracker,
+        domain: Dict[Text, Any],
+    ) -> List[Dict[Text, Any]]:
+        user_text = (tracker.latest_message.get("text") or "").strip()
+        if not user_text:
+            dispatcher.utter_message(response="utter_default")
+            return []
+
+        kb_scored = score_kb_entries(user_text)
+        nlu_signals = nlu_intent_signals(tracker.latest_message)
+        if not should_treat_as_compound_fallback(user_text, kb_scored, nlu_signals):
+            dispatcher.utter_message(response="utter_default")
+            return []
+
+        payload = build_deepseek_user_payload(user_text, kb_scored, nlu_signals)
+        content, _err = deepseek_chat(payload, system=_deepseek_multi_intent_system())
+        if not content:
+            dispatcher.utter_message(response="utter_default")
             return []
 
         suffix = "（以上内容由大模型生成；演示环境无接入实时统计，请勿作为官方数据依据。）"

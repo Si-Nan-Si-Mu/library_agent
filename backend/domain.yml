@@ -349,6 +349,7 @@ actions:
   - action_book_overview
   - action_borrow_record_query
   - action_data_inquiry
+  - action_nlu_fallback_router
 
 session_config:
   # 0 表示会话永不过期，同一 sender 会长期保留 active_loop，表现为「每条回复后都追问预约空间」。
