@@ -10,7 +10,8 @@
 
 | 文件 | 说明 |
 |------|------|
-| `user_utterances_train.jsonl` | 自 `train.json` 按对话顺序抽取的前 **12,000** 条用户话轮；每行一个 JSON：`text`（用户话）与 `dialog_act`（领域/意图/槽位等元组列表，格式同上游标注）。 |
+| `user_utterances_train.jsonl` | 自 `train.json` 按对话顺序抽取的用户话轮（条数取决于生成时的 `--max-lines`；全量用户轮约 **4.2 万**）。每行 JSON：`text` 与 `dialog_act`（`[类型, 领域, 槽, 值]`，与上游一致）。 |
+| `candidates/` | 由 `scripts/crosswoz_nlu_candidates.py` 分桶导出的 **待人工改写** 纯文本；见该目录下 `README.md`。 |
 
 领域为酒店、餐馆、景点、地铁、出租车等，**与图书馆业务不对齐**；适合作为「怎么说得像任务型中文」的补充素材。
 
@@ -20,10 +21,18 @@
 2. 在项目根目录执行：
 
 ```bash
-python scripts/build_crosswoz_user_utterances_sample.py --input path/to/train.json --output backend/data/crosswoz/user_utterances_train.jsonl --max-lines 12000
+python scripts/build_crosswoz_user_utterances_sample.py --input path/to/train.json --output backend/data/crosswoz/user_utterances_train.jsonl --max-lines 50000
 ```
 
 调大 `--max-lines` 可生成更多行（注意仓库体积与 Git 限制）。
+
+## 生成 NLU 改写候选（推荐工作流）
+
+```bash
+python scripts/crosswoz_nlu_candidates.py --input backend/data/crosswoz/user_utterances_train.jsonl --output-dir backend/data/crosswoz/candidates --per-bucket 120
+```
+
+在 `candidates/*.txt` 中挑选、改写成图书馆说法后，再合并进 `backend/data/nlu.yml`。
 
 ## 引用
 
