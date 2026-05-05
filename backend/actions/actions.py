@@ -1,4 +1,5 @@
 import json
+import os
 import re
 from typing import Any, Text, Dict, List, Optional
 
@@ -11,6 +12,7 @@ except Exception:
 
 from .library_db import (
     borrow_book,
+    catalog_search_by_topic,
     format_on_shelf_borrow_preview,
     get_active_borrow_count,
     get_catalog_overview,
@@ -21,7 +23,6 @@ from .library_db import (
     list_on_shelf_by_title,
     lookup_circulation,
     record_borrow_transaction,
-    recommend_on_shelf,
     return_book,
 )
 
@@ -52,6 +53,114 @@ _DATA_INQUIRY_SYSTEM = (
     "回答使用用户相对熟悉的语言，条理清晰，篇幅适中。"
     "不要使用任何括号表示情绪或动作。"
 )
+
+
+_READING_RECOMMEND_SYSTEM = (
+    "你是高校图书馆「阅读推荐」助手（演示环境）。"
+    "【馆藏事实】段落中的索书号、位置与在架/已借出状态必须严格按所给数据书写，不得改写、不得编造。"
+    "【知识图谱候选】若标注为演示库无匹配，则不得为其填写本馆索书号或架位。"
+    "输出结构：先写「本馆馆藏·在架可借」，再写「本馆馆藏·已借出」，最后写「扩展推荐（非馆藏或仅图谱）」；"
+    "每一条都要明确写出是否在演示库中、是否可借（在架可借 / 已借出）。"
+    "篇幅适中，条理清晰；不要使用括号表达情绪。"
+)
+
+
+def _circulation_label(row: Dict[str, Any]) -> str:
+    return "在架可借" if int(row.get("is_borrow") or 0) == 0 else "已借出"
+
+
+def _match_catalog_title(catalog_rows: List[dict], graph_title: str) -> Optional[dict]:
+    gt = (graph_title or "").strip()
+    if not gt:
+        return None
+    for r in catalog_rows:
+        lb = str(r.get("lib_book") or "").strip()
+        if not lb:
+            continue
+        if gt == lb or gt in lb or lb in gt:
+            return r
+    return None
+
+
+def _build_reading_recommend_payload(
+    topic: str, catalog_rows: List[dict], graph_rows: List[dict]
+) -> str:
+    on_shelf = [r for r in catalog_rows if int(r.get("is_borrow") or 0) == 0]
+    borrowed = [r for r in catalog_rows if int(r.get("is_borrow") or 0) == 1]
+
+    def fmt_block(rows: List[dict], label: str) -> str:
+        if not rows:
+            return f"（无{label}）"
+        lines = []
+        for r in rows:
+            pos = (r.get("book_pos") or "").strip() or "未定"
+            lines.append(
+                f"- 《{r['lib_book']}》 索书号 {r['book_key']}  位置 {pos}  状态 {_circulation_label(r)}"
+            )
+        return "\n".join(lines)
+
+    graph_lines: List[str] = []
+    for gr in graph_rows:
+        title = (gr.get("title") or "").strip()
+        if not title:
+            continue
+        rating = gr.get("rating")
+        sm = (gr.get("summary") or "").strip()
+        m = _match_catalog_title(catalog_rows, title)
+        if m:
+            graph_lines.append(
+                f"- 《{title}》 图谱条目；与本馆记录对应：索书号 {m['book_key']}  位置 "
+                f"{(m.get('book_pos') or '').strip() or '未定'}  状态 {_circulation_label(m)}"
+            )
+        else:
+            rate_s = f" 评分 {rating}" if rating is not None else ""
+            sm_short = sm[:120] + ("…" if len(sm) > 120 else "") if sm else ""
+            extra = f" 摘要 {sm_short}" if sm_short else ""
+            graph_lines.append(f"- 《{title}》{rate_s}（演示图谱；演示库无题名匹配馆藏）{extra}")
+
+    graph_block = "\n".join(graph_lines) if graph_lines else "（无知识图谱候选）"
+
+    return (
+        f"用户主题：{topic}\n\n"
+        f"【馆藏事实 — 在架可借】\n{fmt_block(on_shelf, '在架可借')}\n\n"
+        f"【馆藏事实 — 已借出】\n{fmt_block(borrowed, '已借出')}\n\n"
+        f"【知识图谱候选】\n{graph_block}\n\n"
+        "请按系统角色中的结构输出，不得省略状态说明。"
+    )
+
+
+def _fallback_reading_recommend_text(
+    topic: str, catalog_rows: List[dict], graph_rows: List[dict]
+) -> str:
+    parts: List[str] = [f"与「{topic}」相关的阅读推荐（演示馆藏 + 图谱，仅供参考）：\n"]
+    on_shelf = [r for r in catalog_rows if int(r.get("is_borrow") or 0) == 0]
+    borrowed = [r for r in catalog_rows if int(r.get("is_borrow") or 0) == 1]
+    if on_shelf:
+        parts.append("【本馆·在架可借】")
+        for r in on_shelf[:15]:
+            parts.append(
+                f"- 《{r['lib_book']}》 {r['book_key']} · {r.get('book_pos') or '位置未定'} · 在架可借"
+            )
+        parts.append("")
+    if borrowed:
+        parts.append("【本馆·已借出】")
+        for r in borrowed[:15]:
+            parts.append(
+                f"- 《{r['lib_book']}》 {r['book_key']} · {r.get('book_pos') or '位置未定'} · 已借出"
+            )
+        parts.append("")
+    if graph_rows:
+        parts.append("【扩展·图谱（可能非馆藏）】")
+        for gr in graph_rows[:8]:
+            title = (gr.get("title") or "").strip()
+            m = _match_catalog_title(catalog_rows, title)
+            tag = "（与上表馆藏为同一本书）" if m else "（演示库未收录该书目）"
+            parts.append(f"- 《{title}》{tag}")
+        parts.append("")
+    parts.append(
+        "可直接回复「借这本」或完整书名继续借阅；已借出书无法作为在架可借办理。"
+    )
+    return "\n".join(parts)
 
 
 def _deepseek_multi_intent_system() -> str:
@@ -808,68 +917,7 @@ class ActionReadingRecommend(Action):
         domain: Dict[Text, Any],
     ) -> List[Dict[Text, Any]]:
         topic = (tracker.get_slot("topic") or "").strip()
-        if topic:
-            graph_rows = neo4j_recommend_by_topic(topic, limit=8)
-            if graph_rows:
-                lines = []
-                for r in graph_rows:
-                    rating = r.get("rating")
-                    rate_s = f"{rating}" if rating is not None else "-"
-                    sm = (r.get("summary") or "").strip()
-                    extra = f" — {sm}" if sm else ""
-                    lines.append(f"《{r['title']}》（评分 {rate_s}）{extra}")
-                dispatcher.utter_message(
-                    text=(
-                        f"根据知识图谱（Neo4j）与主题「{topic}」的匹配结果（演示数据）：\n"
-                        + "\n".join(lines)
-                        + "\n可直接回复「借这本」或书名继续办理借阅。具体以 OPAC 与正式馆藏目录为准。"
-                    )
-                )
-                top = graph_rows[0]
-                return [
-                    SlotSet("last_recommended_title", (top.get("title") or "").strip() or None),
-                    SlotSet("last_recommended_call_number", (top.get("book_key") or "").strip() or None),
-                    SlotSet(
-                        "last_recommended_candidates",
-                        json.dumps([str(x.get("title") or "").strip() for x in graph_rows if str(x.get("title") or "").strip()], ensure_ascii=False),
-                    ),
-                ]
-
-        rows = recommend_on_shelf(topic or None)
-        if topic and rows:
-            lines = [
-                f"《{r['lib_book']}》 — {r['book_pos'] or '位置未定'} （{r['book_key']}）"
-                for r in rows
-            ]
-            dispatcher.utter_message(
-                text=(
-                    f"与「{topic}」匹配的在架书目（SQLite 演示库，仅供参考）：\n"
-                    + "\n".join(lines)
-                    + "\n可直接回复「借这本」或书名继续办理借阅。具体以 OPAC 为准。"
-                )
-            )
-            top = rows[0]
-            return [
-                SlotSet("last_recommended_title", top["lib_book"]),
-                SlotSet("last_recommended_call_number", top["book_key"]),
-                SlotSet(
-                    "last_recommended_candidates",
-                    json.dumps([str(x["lib_book"]).strip() for x in rows if str(x["lib_book"]).strip()], ensure_ascii=False),
-                ),
-            ]
-        elif topic:
-            dispatcher.utter_message(
-                text=(
-                    f"演示库中暂无题名含「{topic}」的在架图书，可换一个关键词；"
-                    "也可检索同类目新书区与主题书架。"
-                )
-            )
-            return [
-                SlotSet("last_recommended_title", None),
-                SlotSet("last_recommended_call_number", None),
-                SlotSet("last_recommended_candidates", None),
-            ]
-        else:
+        if not topic:
             dispatcher.utter_message(
                 text=(
                     "推荐阅读（演示）：请告诉我感兴趣的主题，例如「历史」「人工智能」「文学」；"
@@ -877,6 +925,82 @@ class ActionReadingRecommend(Action):
                 )
             )
             return []
+
+        try:
+            cat_limit = int(os.environ.get("READING_RECOMMEND_CATALOG_LIMIT") or "50")
+        except ValueError:
+            cat_limit = 50
+        cat_limit = max(10, min(cat_limit, 120))
+
+        catalog_rows = catalog_search_by_topic(topic, cat_limit)
+        graph_rows = neo4j_recommend_by_topic(topic, limit=8)
+
+        if not catalog_rows and not graph_rows:
+            dispatcher.utter_message(
+                text=(
+                    f"演示库与图谱中均未找到与「{topic}」匹配的书目，可换一个关键词；"
+                    "也可先说「书籍总览」浏览演示馆藏。"
+                )
+            )
+            return [
+                SlotSet("last_recommended_title", None),
+                SlotSet("last_recommended_call_number", None),
+                SlotSet("last_recommended_candidates", None),
+            ]
+
+        payload = _build_reading_recommend_payload(topic, catalog_rows, graph_rows)
+        content, _err = deepseek_chat(payload, system=_READING_RECOMMEND_SYSTEM)
+        if content:
+            suffix = "（以上内容由大模型整理；馆藏状态以演示库为准。）"
+            dispatcher.utter_message(text=f"{content}\n\n{suffix}")
+        else:
+            dispatcher.utter_message(text=_fallback_reading_recommend_text(topic, catalog_rows, graph_rows))
+
+        on_shelf = [r for r in catalog_rows if int(r.get("is_borrow") or 0) == 0]
+        borrowed = [r for r in catalog_rows if int(r.get("is_borrow") or 0) == 1]
+        ordered_titles: List[str] = []
+        for r in on_shelf:
+            t = str(r.get("lib_book") or "").strip()
+            if t and t not in ordered_titles:
+                ordered_titles.append(t)
+        for r in borrowed:
+            t = str(r.get("lib_book") or "").strip()
+            if t and t not in ordered_titles:
+                ordered_titles.append(t)
+        for gr in graph_rows:
+            t = str(gr.get("title") or "").strip()
+            if t and t not in ordered_titles:
+                ordered_titles.append(t)
+
+        if on_shelf:
+            pick = on_shelf[0]
+            return [
+                SlotSet("last_recommended_title", pick["lib_book"]),
+                SlotSet("last_recommended_call_number", pick["book_key"]),
+                SlotSet(
+                    "last_recommended_candidates",
+                    json.dumps(ordered_titles[:20], ensure_ascii=False),
+                ),
+            ]
+        if borrowed:
+            pick = borrowed[0]
+            return [
+                SlotSet("last_recommended_title", pick["lib_book"]),
+                SlotSet("last_recommended_call_number", pick["book_key"]),
+                SlotSet(
+                    "last_recommended_candidates",
+                    json.dumps(ordered_titles[:20], ensure_ascii=False),
+                ),
+            ]
+        top = graph_rows[0]
+        return [
+            SlotSet("last_recommended_title", (top.get("title") or "").strip() or None),
+            SlotSet("last_recommended_call_number", None),
+            SlotSet(
+                "last_recommended_candidates",
+                json.dumps(ordered_titles[:20], ensure_ascii=False),
+            ),
+        ]
 
 
 class ActionBookOverview(Action):

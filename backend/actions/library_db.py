@@ -519,6 +519,32 @@ def recommend_on_shelf(topic: Optional[str], limit: int = 5) -> List[dict]:
         return []
 
 
+def catalog_search_by_topic(topic: Optional[str], limit: int = 50) -> List[dict]:
+    """
+    按题名模糊匹配馆藏（含在架与已借出），供阅读推荐与 LLM 事实上下文。
+    在架（is_borrow=0）排在已借出之前。
+    """
+    topic = (topic or "").strip()
+    if not topic:
+        return []
+    try:
+        with get_connection() as conn:
+            cur = conn.execute(
+                """
+                SELECT book_key, lib_book, book_pos, is_borrow
+                FROM library_book
+                WHERE lib_book LIKE ?
+                ORDER BY is_borrow ASC, book_key
+                LIMIT ?
+                """,
+                (f"%{topic}%", int(limit)),
+            )
+            return [_row_to_dict(r) for r in cur.fetchall()]
+    except sqlite3.Error as e:
+        logger.warning("catalog_search_by_topic: %s", e)
+        return []
+
+
 def list_catalog_books(limit: int = 500) -> List[dict]:
     """返回馆藏书目列表（含在架/已借出状态），用于前端借书交互表单。"""
     try:
