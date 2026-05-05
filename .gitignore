@@ -3,3 +3,6 @@
 .env
 **/__pycache__/
 *.py[cod]
+
+# CrossWOZ 全量原始数据（仅本地生成用，勿提交）
+tmp_crosswoz/
