@@ -12,10 +12,12 @@ from neo4j_auth import driver_kwargs, resolve_auth
 DEFAULT_URI = "bolt://localhost:7687"
 
 SCHEMA_QUERIES = [
-    "CREATE CONSTRAINT book_title IF NOT EXISTS FOR (b:Book) REQUIRE b.title IS UNIQUE;",
+    "DROP CONSTRAINT book_title IF EXISTS;",
+    "DROP CONSTRAINT book_book_key IF EXISTS;",
     "CREATE CONSTRAINT author_name IF NOT EXISTS FOR (a:Author) REQUIRE a.name IS UNIQUE;",
     "CREATE CONSTRAINT category_name IF NOT EXISTS FOR (c:Category) REQUIRE c.name IS UNIQUE;",
     "CREATE CONSTRAINT topic_name IF NOT EXISTS FOR (t:Topic) REQUIRE t.name IS UNIQUE;",
+    "CREATE CONSTRAINT library_book_key IF NOT EXISTS FOR (lb:LibraryBook) REQUIRE lb.book_key IS UNIQUE;",
 ]
 
 

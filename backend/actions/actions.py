@@ -1,7 +1,8 @@
 import json
+import logging
 import os
 import re
-from typing import Any, Text, Dict, List, Optional
+from typing import Any, Text, Dict, List, Optional, Tuple
 
 try:
     from kg_module.env_bootstrap import load_repo_dotenv
@@ -10,12 +11,15 @@ try:
 except Exception:
     pass
 
-from .library_db import (
+from .neo4j_library_store import (
     borrow_book,
     catalog_search_by_topic,
     format_on_shelf_borrow_preview,
     get_active_borrow_count,
-    get_catalog_overview,
+    get_library_book_by_call_number,
+    get_library_collection_stats,
+    list_on_shelf_overview_page,
+    search_library_books_for_intro,
     list_active_borrow_records,
     list_catalog_books,
     list_borrow_records,
@@ -36,6 +40,7 @@ except Exception:  # pragma: no cover - fallback for IDE/static analysis env
     CollectingDispatcher = Any
 
 from .deepseek_client import deepseek_chat
+from .reading_web_search import build_reading_web_context
 from .intent_coverage import (
     borrow_policy_anchor,
     build_deepseek_user_payload,
@@ -43,13 +48,15 @@ from .intent_coverage import (
     score_kb_entries,
     should_treat_as_compound_fallback,
 )
+from .graph_rag import graph_rag_enabled, graph_rag_retrieve_evidence
 from .neo4j_graph import recommend_books_by_topic as neo4j_recommend_by_topic
 
 _DATA_INQUIRY_SYSTEM = (
     "你是高校图书馆智能助手（演示环境）。用户会做开放数据、统计口径、借阅趋势类、推荐阅读等类别的提问。"
     "你只提供一般性方法、概念说明与合规注意点；不得编造具体的借阅量、百分比、排名等数字。"
     "若需要精确数据，应引导对方通过馆方 OPAC、报表系统或经授权的统计服务查询，并提及权限与审计要求。"
-    "或者使用sql语句查询图书馆的sqlite数据库，然后根据查询结果回答用户的问题。"
+    "当提示词中附有「Neo4j 图谱检索结果」JSON 事实时，应优先根据其回答书名、作者、主题、类目、馆藏状态等结构化问题，不要捏造未出现于该 JSON 的记录。"
+    "未附图谱片段时，仍可结合书目常识作答，但不要编造即时 OPAC；涉及办理借还仅引导用户使用本对话的借书/还书表单。"
     "回答使用用户相对熟悉的语言，条理清晰，篇幅适中。"
     "不要使用任何括号表示情绪或动作。"
 )
@@ -72,18 +79,221 @@ def _match_catalog_title(catalog_rows: List[dict], graph_title: str) -> Optional
     return None
 
 
+_READING_DEEPSEEK_SYSTEM = (
+    "你是高校图书馆「阅读推广」助手，语气亲切、有分享感。"
+    "下列【馆内检索事实】JSON 来自演示图数据库：索书号、是否在架以其中字段为准，不得虚构或改写。"
+    "若另有【网络参考】，仅为开放网页摘要线索，须与馆内事实区分，勿把网络内容说成本馆已定藏。"
+    "请用中文输出 260～480 字：① 一两句点题；② 结合馆内事实与（若有）网络参考，各用 1～3 处线索展开，"
+    "对重点书目各给一句适合转发的「内容简介式」短句或阅读感受；③ 结尾提醒读者「是否可借、索书号以聊天下方表格为准」。"
+    "不要使用括号表情，不要复述整段 JSON。"
+    "正文必须使用 Markdown 排版：至少包含 **加粗**（如书名）与 `##` 小标题或 `-` 无序列表之一，可以附带其他 Markdown 语法，如`[链接](https://example.com)`、色彩、彩字、斜体等。"
+    "避免整段只有纯文字；可用 `## 导读`、`## 在架选读` 等分节。"
+)
+
+
+def _entity_text(e: Dict[str, Any]) -> str:
+    v = e.get("value")
+    if isinstance(v, str) and v.strip():
+        return v.strip()
+    t = e.get("text")
+    if isinstance(t, str) and t.strip():
+        return t.strip()
+    return ""
+
+
+def _weak_topic_from_utterance(text: str) -> str:
+    s = (text or "").strip()
+    if not s:
+        return ""
+    vague = {
+        "推荐阅读",
+        "推荐几本书",
+        "推荐",
+        "有没有推荐的书籍",
+        "不知道借什么随便看看",
+    }
+    if s in vague:
+        return ""
+    for p in (
+        "推荐阅读",
+        "推荐一下",
+        "给我推荐",
+        "帮我推荐",
+        "请推荐",
+        "推荐点",
+        "推荐些",
+        "推荐几本",
+        "推荐",
+        "有没有关于",
+        "关于",
+        "想读点",
+        "想看点",
+        "想看",
+        "来点",
+        "想找",
+        "求推荐",
+        "求安利",
+        "安利",
+        "按主题",
+        "按",
+    ):
+        if s.startswith(p):
+            s = s[len(p) :].lstrip(" ，。、；:：的")
+    s = re.sub(r"(的书|书籍|图书|书单|方面|领域|方向)$", "", s).strip()
+    if len(s) > 48:
+        s = s[:48].rstrip(" ，。、") + "…"
+    return s
+
+
+def _resolve_reading_topic(tracker: Tracker) -> str:
+    topic = (tracker.get_slot("topic") or "").strip()
+    if topic:
+        return topic
+    author = (tracker.get_slot("author") or "").strip()
+    if author:
+        return author
+    for e in tracker.latest_message.get("entities") or []:
+        if not isinstance(e, dict):
+            continue
+        en = str(e.get("entity") or "")
+        if en in ("topic", "author"):
+            t = _entity_text(e)
+            if t:
+                return t
+    return _weak_topic_from_utterance((tracker.latest_message.get("text") or "").strip())
+
+
+def _reading_facts_dict(catalog_rows: List[dict], graph_rows: List[dict]) -> Dict[str, Any]:
+    def cr(r: dict) -> Dict[str, Any]:
+        return {
+            "title": (str(r.get("lib_book") or "")).strip(),
+            "call_number": (str(r.get("book_key") or "")).strip(),
+            "on_shelf": int(r.get("is_borrow") or 0) == 0,
+            "book_pos": (str(r.get("book_pos") or "").strip() or None),
+            "summary": (str(r.get("summary") or "").strip()[:200] or None),
+        }
+
+    def gr(r: dict) -> Dict[str, Any]:
+        return {
+            "title": (str(r.get("title") or "")).strip(),
+            "call_number": (str(r.get("book_key") or "")).strip() or None,
+            "rating": r.get("rating"),
+            "authors": r.get("authors") if isinstance(r.get("authors"), list) else [],
+            "summary": (str(r.get("summary") or "").strip()[:200] or None),
+        }
+
+    on_shelf = [cr(r) for r in catalog_rows if int(r.get("is_borrow") or 0) == 0][:14]
+    borrowed = [cr(r) for r in catalog_rows if int(r.get("is_borrow") or 0) == 1][:8]
+    graph = [gr(r) for r in graph_rows[:10]]
+    return {"on_shelf": on_shelf, "borrowed": borrowed, "graph": graph}
+
+
+_GRAPH_INTRO_DEEPSEEK_SYSTEM = (
+    "你是高校图书馆荐书编辑。用户给定检索主题与若干本候选书（来自知识图谱，字段含 book_key、题名、作者、评分、已有简介片段）。"
+    "请为每本书写一条「扩展推荐」表格用的简介：50～100 字中文，语气可分享；可适度使用 Markdown（如 **加粗** 强调书名或概念）。"
+    "须紧扣输入中的事实，勿编造索书号；若某书信息极少，可写阅读角度或适读人群。"
+    '只输出一个 JSON 数组，不要其它说明文字；数组元素形如 {"book_key":"KG.GR.00001","intro":"……"} ，'
+    "其中 book_key 必须与输入中的 book_key 完全一致。"
+)
+
+
+def _extract_first_json_array(text: str) -> Optional[Any]:
+    s = (text or "").strip()
+    if not s:
+        return None
+    for token in ("```json", "```JSON", "```"):
+        if token in s:
+            i = s.find(token)
+            j = s.find("```", i + len(token))
+            if j > i:
+                s = s[i + len(token) : j].strip()
+            break
+    lb = s.find("[")
+    rb = s.rfind("]")
+    if lb < 0 or rb <= lb:
+        return None
+    try:
+        return json.loads(s[lb : rb + 1])
+    except (TypeError, ValueError):
+        return None
+
+
+def _deepseek_graph_row_intros(topic: str, graph_rows: List[dict]) -> Dict[str, str]:
+    """为扩展推荐表生成 book_key -> 简介（Markdown 允许）。无 API Key 或关闭开关时返回 {}。"""
+    if not graph_rows:
+        return {}
+    if not (os.environ.get("DEEPSEEK_API_KEY") or "").strip():
+        return {}
+    flag = (os.environ.get("READING_GRAPH_INTRO_DEEPSEEK") or "1").strip().lower()
+    if flag in ("0", "false", "off", "no"):
+        return {}
+    compact: List[Dict[str, Any]] = []
+    for gr in graph_rows[:12]:
+        bk = str(gr.get("book_key") or "").strip()
+        title = (gr.get("title") or "").strip()
+        if not title:
+            continue
+        sm = (str(gr.get("summary") or "").strip())[:240]
+        authors = gr.get("authors") if isinstance(gr.get("authors"), list) else []
+        compact.append(
+            {
+                "book_key": bk,
+                "title": title,
+                "authors": [str(a) for a in authors if str(a).strip()][:4],
+                "rating": gr.get("rating"),
+                "summary_snippet": sm,
+            }
+        )
+    if not compact:
+        return {}
+    user_blob = (
+        f"检索主题：{topic}\n\n"
+        "候选书 JSON：\n"
+        f"{json.dumps(compact, ensure_ascii=False)}\n\n"
+        "请输出 JSON 数组，字段 book_key、intro。"
+    )
+    raw, err = deepseek_chat(
+        user_blob,
+        system=_GRAPH_INTRO_DEEPSEEK_SYSTEM,
+        timeout=50.0,
+        temperature=0.35,
+    )
+    if not raw or err:
+        if err and err != "missing_api_key":
+            logging.getLogger(__name__).info("graph intro DeepSeek: %s", err)
+        return {}
+    arr = _extract_first_json_array(raw)
+    if not isinstance(arr, list):
+        return {}
+    out: Dict[str, str] = {}
+    for el in arr:
+        if not isinstance(el, dict):
+            continue
+        bk = str(el.get("book_key") or "").strip()
+        intro = str(el.get("intro") or "").strip()
+        if bk and intro:
+            out[bk] = intro
+    return out
+
+
 def _reading_recommend_custom_message(
-    topic: str, catalog_rows: List[dict], graph_rows: List[dict]
+    topic: str,
+    catalog_rows: List[dict],
+    graph_rows: List[dict],
+    graph_ai_summaries: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
-    """供前端表格渲染的结构化载荷（事实以 SQLite / 图谱为准，避免大段 LLM 正文）。"""
+    """供前端表格渲染的结构化载荷（事实以 Neo4j `:LibraryBook` 为准；图谱推荐与馆藏为同一节点）。"""
+    graph_ai_summaries = graph_ai_summaries or {}
     on_shelf = [r for r in catalog_rows if int(r.get("is_borrow") or 0) == 0]
     borrowed = [r for r in catalog_rows if int(r.get("is_borrow") or 0) == 1]
 
     def cat_row(r: dict) -> Dict[str, Any]:
+        sm = str(r.get("summary") or "").strip()
         return {
             "book_title": str(r.get("lib_book") or "").strip(),
             "call_number": str(r.get("book_key") or "").strip(),
             "book_pos": (str(r.get("book_pos") or "").strip() or "未定"),
+            "book_summary": (sm[:200] + "…") if len(sm) > 200 else sm,
             "status": _circulation_label(r),
         }
 
@@ -96,18 +306,46 @@ def _reading_recommend_custom_message(
         sm = (gr.get("summary") or "").strip()
         sm_short = (sm[:180] + "…") if len(sm) > 180 else sm
         rating = gr.get("rating")
+        authors = gr.get("authors") or []
+        author_bios = gr.get("author_bios") or []
+        categories = gr.get("categories") or []
+        topics = gr.get("topics") or []
+        if not isinstance(authors, list):
+            authors = []
+        if not isinstance(author_bios, list):
+            author_bios = []
+        if not isinstance(categories, list):
+            categories = []
+        if not isinstance(topics, list):
+            topics = []
         hint_parts: List[str] = []
+        if authors:
+            hint_parts.append("作者：" + "、".join(str(a) for a in authors if str(a).strip()))
+        for i, name in enumerate(authors):
+            if i < len(author_bios) and (author_bios[i] or "").strip():
+                bio_s = str(author_bios[i]).strip()
+                hint_parts.append(
+                    f"{name}简介：" + (bio_s[:120] + "…" if len(bio_s) > 120 else bio_s)
+                )
+                break
+        if categories:
+            hint_parts.append("类目：" + "、".join(str(c) for c in categories if str(c).strip()))
+        if topics:
+            hint_parts.append("主题：" + "、".join(str(t) for t in topics if str(t).strip()))
         if rating is not None:
             hint_parts.append(f"评分 {rating}")
         if sm_short:
             hint_parts.append(sm_short)
+        c_sum = (str(m.get("summary") or "").strip()) if m else ""
+        gk = str(gr.get("book_key") or "").strip()
+        call_no = (str(m.get("book_key") or "").strip() if m else "") or gk or "—"
+        fallback_sm = (c_sum[:200] + "…") if len(c_sum) > 200 else (c_sum or sm_short or "")
+        ai_sm = (graph_ai_summaries.get(call_no) or graph_ai_summaries.get(gk) or "").strip()
         graph_out.append(
             {
                 "book_title": title,
-                "call_number": str(m["book_key"]).strip() if m else "—",
-                "book_pos": (str(m.get("book_pos") or "").strip() or "未定") if m else "—",
-                "status": _circulation_label(m) if m else "图谱候选（演示库无题名匹配）",
-                "catalog_match": bool(m),
+                "call_number": call_no,
+                "book_summary": ai_sm or fallback_sm or "—",
                 "hint": "；".join(hint_parts) if hint_parts else "—",
             }
         )
@@ -116,13 +354,13 @@ def _reading_recommend_custom_message(
         "payload_type": "reading_recommend",
         "topic": topic,
         "intro": (
-            f"主题「{topic}」｜以下为演示库检索结果，分表列出在架、已借出与图谱扩展。"
+            f"主题「{topic}」｜下方表格为演示库在架 / 已借出与图谱扩展；"
             "在架图书可说「借书」后输入书名办理借阅。"
         ),
         "on_shelf_rows": [cat_row(r) for r in on_shelf[:40]],
         "borrowed_rows": [cat_row(r) for r in borrowed[:40]],
         "graph_rows": graph_out[:12],
-        "footnote": "馆藏与在架状态以本表与演示库为准；图谱条目可能不在本馆演示库中。",
+        "footnote": "在架状态以「本馆馆藏」表为准；扩展推荐简介由模型生成，说明列仍为图谱事实摘要；选书与索书号以表格为准。",
     }
 
 
@@ -311,12 +549,20 @@ class ActionAskBorrowBookFormBookTitle(Action):
                     "book_title": r.get("lib_book") or "",
                     "call_number": r.get("book_key") or "",
                     "book_pos": r.get("book_pos") or "位置未定",
+                    "book_summary": (str(r.get("summary") or "").strip()[:300]),
                     "status": "已借出" if borrowed else "在架可借",
                     "is_available": not borrowed,
                 }
             )
-        dispatcher.utter_message(text="请问要办理的书名是？可在下方书目表中搜索并翻页选择。")
+        intro = "请问要办理的书名是？可在下方书目表中搜索并翻页选择。"
+        empty_hint = ""
+        if not payload_rows:
+            empty_hint = (
+                " 若书目为空：请确认 Neo4j 已启动、根目录 `.env` 已配置 NEO4J_*，"
+                "并执行 `python scripts/seed_library_graph.py` 后重启 Action。"
+            )
         dispatcher.utter_message(
+            text=intro + empty_hint,
             json_message={
                 "payload_type": "borrow_catalog",
                 "rows": payload_rows,
@@ -338,7 +584,7 @@ class ActionAskBorrowBookFormBookTitle(Action):
                         for x in active_rows
                     ],
                 },
-            }
+            },
         )
         return []
 
@@ -360,6 +606,7 @@ class ActionAskReturnBookFormBookTitle(Action):
                 "book_title": str(r.get("lib_book") or "").strip(),
                 "call_number": str(r.get("book_key") or "").strip(),
                 "book_pos": str(r.get("book_pos") or "").strip(),
+                "book_summary": str(r.get("summary") or "").strip(),
                 "borrow_at": str(r.get("borrow_at") or "").strip(),
                 "due_at": str(r.get("due_at") or "").strip(),
                 "status": "待归还",
@@ -601,6 +848,50 @@ class ActionBorrowBook(Action):
             AllSlotsReset(),
             SlotSet("api_borrow_succeed", ok),
             SlotSet("last_borrow_detail", detail),
+            ActiveLoop(None),
+        ]
+
+
+class ActionBorrowConfirmCancel(Action):
+    """用户在单本/多本借书确认阶段否定：统一话术并清理借书相关槽位，避免后续意图被旧状态干扰。"""
+
+    def name(self) -> Text:
+        return "action_borrow_confirm_cancel"
+
+    def run(
+        self,
+        dispatcher: CollectingDispatcher,
+        tracker: Tracker,
+        domain: Dict[Text, Any],
+    ) -> List[Dict[Text, Any]]:
+        dispatcher.utter_message(response="utter_ask_borrow_confirm_then_no")
+        return [
+            SlotSet("borrow_phase", "idle"),
+            SlotSet("book_title", None),
+            SlotSet("call_number", None),
+            SlotSet("defer_nlu_fallback", False),
+            ActiveLoop(None),
+        ]
+
+
+class ActionReturnConfirmCancel(Action):
+    """用户在单本/多本还书确认阶段否定：统一话术并清理还书相关槽位。"""
+
+    def name(self) -> Text:
+        return "action_return_confirm_cancel"
+
+    def run(
+        self,
+        dispatcher: CollectingDispatcher,
+        tracker: Tracker,
+        domain: Dict[Text, Any],
+    ) -> List[Dict[Text, Any]]:
+        dispatcher.utter_message(response="utter_ask_return_confirm_then_no")
+        return [
+            SlotSet("return_phase", "idle"),
+            SlotSet("book_title", None),
+            SlotSet("call_number", None),
+            SlotSet("defer_nlu_fallback", False),
             ActiveLoop(None),
         ]
 
@@ -879,12 +1170,13 @@ class ActionReadingRecommend(Action):
         tracker: Tracker,
         domain: Dict[Text, Any],
     ) -> List[Dict[Text, Any]]:
-        topic = (tracker.get_slot("topic") or "").strip()
+        topic = _resolve_reading_topic(tracker)
         if not topic:
             dispatcher.utter_message(
                 text=(
-                    "推荐阅读（演示）：请告诉我感兴趣的主题，例如「历史」「人工智能」「文学」；"
-                    "正式环境可对接推荐服务或热门借阅榜。"
+                    "推荐阅读：请用简短词语告诉我**感兴趣的主题或作者**。"
+                    "举例仅为常见说法，**没有系统默认主题**——例如可说「人工智能」「文学」「历史」，或作者名如「刘慈欣」；"
+                    "也可以说「推荐几本心理学入门」。"
                 )
             )
             return []
@@ -911,8 +1203,34 @@ class ActionReadingRecommend(Action):
                 SlotSet("last_recommended_candidates", None),
             ]
 
+        ds_flag = (os.environ.get("READING_RECOMMEND_DEEPSEEK") or "1").strip().lower()
+        if ds_flag not in ("0", "false", "off", "no"):
+            web_ctx = build_reading_web_context(topic)
+            facts = _reading_facts_dict(catalog_rows, graph_rows)
+            user_blob = (
+                f"用户输入原句：{(tracker.latest_message.get('text') or '').strip()}\n"
+                f"解析主题/检索词：{topic}\n\n"
+                f"【馆内检索事实 JSON】\n{json.dumps(facts, ensure_ascii=False)}"
+            )
+            if web_ctx:
+                user_blob += f"\n\n【网络参考】\n{web_ctx}"
+            ds_text, ds_err = deepseek_chat(
+                user_blob,
+                system=_READING_DEEPSEEK_SYSTEM,
+                timeout=55.0,
+                temperature=0.45,
+            )
+            if ds_text:
+                dispatcher.utter_message(text=ds_text.strip())
+            elif ds_err and ds_err != "missing_api_key":
+                logging.getLogger(__name__).info("reading_recommend DeepSeek 跳过: %s", ds_err)
+
+        graph_ai_summaries = _deepseek_graph_row_intros(topic, graph_rows)
+
         dispatcher.utter_message(
-            json_message=_reading_recommend_custom_message(topic, catalog_rows, graph_rows)
+            json_message=_reading_recommend_custom_message(
+                topic, catalog_rows, graph_rows, graph_ai_summaries=graph_ai_summaries
+            )
         )
 
         on_shelf = [r for r in catalog_rows if int(r.get("is_borrow") or 0) == 0]
@@ -972,25 +1290,274 @@ class ActionBookOverview(Action):
         tracker: Tracker,
         domain: Dict[Text, Any],
     ) -> List[Dict[Text, Any]]:
-        overview = get_catalog_overview(limit=12)
-        rows = overview.get("rows") or []
-        if not rows:
+        metadata = tracker.latest_message.get("metadata") or {}
+        oc_raw = metadata.get("overview_catalog") if isinstance(metadata, dict) else None
+        oc = oc_raw if isinstance(oc_raw, dict) else {}
+        intent_name = (tracker.latest_message.get("intent") or {}).get("name") or ""
+
+        try:
+            ps = int(oc.get("page_size") or 10)
+        except (TypeError, ValueError):
+            ps = 10
+        ps = max(5, min(30, ps))
+
+        if intent_name == "book_overview":
+            page = 1
+        else:
+            try:
+                page = int(oc.get("page") or 1)
+            except (TypeError, ValueError):
+                page = 1
+            page = max(1, page)
+
+        stats = get_library_collection_stats()
+        on_shelf = int(stats.get("on_shelf") or 0)
+        max_page = max(1, (on_shelf + ps - 1) // ps) if on_shelf else 1
+        if page > max_page:
+            page = max_page
+
+        raw_rows = list_on_shelf_overview_page(page, ps)
+        if not raw_rows and on_shelf == 0:
             dispatcher.utter_message(text="当前演示库暂无可展示的在架书目，请稍后重试。")
             return []
-        lines = [
-            f"{i}. 《{r['lib_book']}》 — {r.get('book_pos') or '位置未定'}（{r['book_key']}）"
-            for i, r in enumerate(rows, start=1)
+
+        payload_rows = [
+            {
+                "book_title": (r.get("lib_book") or "").strip(),
+                "call_number": (r.get("book_key") or "").strip(),
+                "book_pos": ((r.get("book_pos") or "").strip() or "位置未定"),
+                "book_summary": (str(r.get("summary") or "").strip()[:260]),
+            }
+            for r in raw_rows
         ]
-        dispatcher.utter_message(
-            text=(
-                f"书籍总览（演示库）：共 {overview['total']} 本，在架可借 {overview['on_shelf']} 本，"
-                f"已借出 {overview['borrowed']} 本。\n"
-                "以下为部分在架书目：\n"
-                + "\n".join(lines)
-                + "\n如需按主题筛选，可继续说「推荐历史书」；如需借阅可直接说书名。"
-            )
+
+        anchor_idx = (page - 1) * ps
+        has_prev = page > 1
+        has_more = anchor_idx + len(raw_rows) < on_shelf
+
+        tgt = str(oc.get("target_message_id") or "").strip()
+        foot = (
+            "可说「**推荐阅读**」「**借书**」「**书籍总览**」等，系统按整句识别，**不是只能报书名**。"
         )
+
+        payload: Dict[Text, Any] = {
+            "payload_type": "overview_catalog",
+            "stats": {
+                "total": int(stats.get("total") or 0),
+                "on_shelf": on_shelf,
+                "borrowed": int(stats.get("borrowed") or 0),
+            },
+            "page": page,
+            "page_size": ps,
+            "on_shelf_total": on_shelf,
+            "has_prev": has_prev,
+            "has_more": has_more,
+            "rows": payload_rows,
+            "footnote": foot,
+            "target_message_id": tgt,
+            "mode": "replace_page" if tgt else "initial",
+        }
+
+        intro = ""
+        if intent_name == "book_overview" and not tgt:
+            intro = (
+                "### 书籍总览（演示库）\n\n"
+                f"馆藏 **{stats['total']}** 本 · 在架可借 **{on_shelf}** 本 · 已借出 **{stats['borrowed']}** 本。\n\n"
+                "下面为 **在架书目**（按索书号排序，**每次只从数据库加载本页**；翻页时再次查询）。"
+            )
+
+        dispatcher.utter_message(text=intro, json_message=payload)
         return []
+
+
+_BOOK_INTRO_DEEPSEEK_SYSTEM = (
+    "你是高校图书馆智能助手的「导读」撰稿人。\n"
+    "用户想了解某本书。你会收到 JSON：**library_book** 与 **alternate_call_numbers** 来自 Neo4j 演示库；"
+    "**graph_record** 为书目图谱中与该书尽量匹配的一条（可能为空）。\n"
+    "写作要求：\n"
+    "1) 优先依据 JSON 中的书名、索书号、架位、流通状态、馆藏简介及图谱字段；**不要编造** JSON 未出现的索书号、架位与借阅状态。\n"
+    "2) 若馆藏简介已较完整，可做条理化解说；可补充通识性阅读建议，并标明为「一般性背景」而非馆藏事实。\n"
+    "3) 篇幅约 220–450 字，使用 Markdown（可加二级小标题）。\n"
+    "4) 结尾简短提醒：流通状态以馆藏书目为准；办理借还可说「借书」或「还书」。\n"
+)
+
+
+def _strip_book_intro_command(text: str) -> str:
+    t = (text or "").strip()
+    if not t:
+        return ""
+    cut = t
+    for phrase in (
+        "介绍一下这本书",
+        "介绍一下这本",
+        "介绍一下",
+        "帮我介绍",
+        "给我介绍",
+        "介绍这本书",
+        "介绍这本",
+        "说说这本书",
+        "说说这本",
+        "说说",
+        "讲讲这本书",
+        "讲讲",
+        "讲一下这本书",
+        "讲一下",
+        "聊聊这本书",
+        "聊聊",
+        "科普一下",
+        "评价一下",
+        "什么是",
+        "想了解",
+    ):
+        if cut.startswith(phrase):
+            cut = cut[len(phrase) :].strip()
+    for phrase in ("这本书", "这本", "咋样", "怎么样", "是啥", "好不好看", "值得读吗"):
+        if cut.endswith(phrase):
+            cut = cut[: -len(phrase)].strip()
+    cut = cut.strip("《》""''\"「」").strip()
+    return cut
+
+
+def _first_kg_call_number(text: str) -> str:
+    m = re.search(r"(KG\.[A-Z0-9.]+)", (text or "").upper())
+    return m.group(1) if m else ""
+
+
+def _compact_graph_for_intro(gr: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not gr or not isinstance(gr, dict):
+        return {}
+    sm = str(gr.get("summary") or "").strip()
+    return {
+        "title": (str(gr.get("title") or "").strip()) or None,
+        "book_key": (str(gr.get("book_key") or "").strip()) or None,
+        "rating": gr.get("rating"),
+        "summary": (sm[:1500] + "…") if len(sm) > 1500 else sm,
+        "authors": gr.get("authors"),
+        "topics": gr.get("topics"),
+        "categories": gr.get("categories"),
+    }
+
+
+def _resolve_book_intro_row(tracker: Tracker) -> Tuple[Optional[Dict[str, Any]], str]:
+    text = (tracker.latest_message.get("text") or "").strip()
+    call_guess = _first_kg_call_number(text)
+    if call_guess:
+        row = get_library_book_by_call_number(call_guess)
+        if row:
+            return row, text
+    for ent in tracker.latest_message.get("entities") or []:
+        if ent.get("entity") == "book_title":
+            raw = (ent.get("value") or ent.get("text") or "").strip()
+            if raw:
+                q = _normalize_title_from_text(raw)
+                if q:
+                    rows = search_library_books_for_intro(q, limit=8)
+                    if rows:
+                        return rows[0], text
+    stripped = _strip_book_intro_command(text)
+    if stripped:
+        q2 = _normalize_title_from_text(stripped)
+        if q2:
+            rows2 = search_library_books_for_intro(q2, limit=8)
+            if rows2:
+                return rows2[0], text
+    remembered = (tracker.get_slot("last_recommended_title") or "").strip()
+    if remembered and _is_demo_book_reference(text):
+        rows3 = search_library_books_for_intro(remembered, limit=4)
+        if rows3:
+            return rows3[0], text
+    return None, text
+
+
+class ActionBookIntroduce(Action):
+    """单书介绍：Neo4j 事实 + 可选图谱片段，交由 DeepSeek 写导读。"""
+
+    def name(self) -> Text:
+        return "action_book_introduce"
+
+    def run(
+        self,
+        dispatcher: CollectingDispatcher,
+        tracker: Tracker,
+        domain: Dict[Text, Any],
+    ) -> List[Dict[Text, Any]]:
+        row, user_text = _resolve_book_intro_row(tracker)
+        if not row:
+            dispatcher.utter_message(
+                text=(
+                    "请直接说**书名**（或《…》书名号）、也可以说**索书号**（如 KG.GR.00001）；"
+                    "也可先说「推荐阅读」「书籍总览」再选书。"
+                )
+            )
+            return []
+
+        lib_book = (row.get("lib_book") or "").strip()
+        book_key = (row.get("book_key") or "").strip()
+        if not lib_book or not book_key:
+            dispatcher.utter_message(text="未能从演示库解析到完整书目字段，请换关键词或索书号再试。")
+            return []
+
+        others = [
+            r
+            for r in search_library_books_for_intro(lib_book, limit=8)
+            if (r.get("book_key") or "").strip() and (r.get("book_key") or "").strip().upper() != book_key.upper()
+        ]
+
+        graph_rows = neo4j_recommend_by_topic(lib_book, limit=16)
+        graph_pick: Optional[Dict[str, Any]] = None
+        for gr in graph_rows:
+            gk = str(gr.get("book_key") or "").strip().upper()
+            gt = str(gr.get("title") or "").strip()
+            if gk == book_key.upper() or (lib_book and gt == lib_book):
+                graph_pick = gr
+                break
+
+        facts: Dict[str, Any] = {
+            "user_utterance": user_text,
+            "library_book": {
+                "lib_book": lib_book,
+                "book_key": book_key,
+                "book_pos": (str(row.get("book_pos") or "").strip() or "位置未定"),
+                "circulation": _circulation_label(row),
+                "summary_from_catalog": (str(row.get("summary") or "").strip())[:1200],
+            },
+            "alternate_call_numbers": [
+                (r.get("book_key") or "").strip() for r in others if (r.get("book_key") or "").strip()
+            ][:5],
+            "graph_record": _compact_graph_for_intro(graph_pick),
+        }
+
+        ds_flag = (os.environ.get("BOOK_INTRO_DEEPSEEK") or os.environ.get("READING_RECOMMEND_DEEPSEEK") or "1").strip().lower()
+        told = False
+        if ds_flag not in ("0", "false", "off", "no"):
+            user_blob = json.dumps(facts, ensure_ascii=False, indent=2) + "\n\n请根据以上 JSON 撰写导读/介绍。"
+            ds_text, ds_err = deepseek_chat(
+                user_blob,
+                system=_BOOK_INTRO_DEEPSEEK_SYSTEM,
+                timeout=55.0,
+                temperature=0.42,
+            )
+            if ds_text and ds_text.strip():
+                dispatcher.utter_message(text=ds_text.strip())
+                told = True
+            elif ds_err and ds_err != "missing_api_key":
+                logging.getLogger(__name__).info("book_intro DeepSeek 跳过: %s", ds_err)
+
+        if not told:
+            pos = (str(row.get("book_pos") or "").strip() or "位置未定")
+            sm = (str(row.get("summary") or "").strip()) or "（演示库暂无简介文本）"
+            dispatcher.utter_message(
+                text=(
+                    f"**《{lib_book}》**（索书号 `{book_key}`，架位 {pos}，{_circulation_label(row)}）\n\n"
+                    f"**馆藏摘要**：{sm}\n\n"
+                    "（DeepSeek 未启用或调用失败，仅展示数据库摘要。配置 `DEEPSEEK_API_KEY` 后可生成导读。）"
+                )
+            )
+
+        return [
+            SlotSet("last_recommended_title", lib_book),
+            SlotSet("last_recommended_call_number", book_key),
+        ]
 
 
 class ActionBorrowRecordQuery(Action):
@@ -1054,7 +1621,20 @@ class ActionDataInquiry(Action):
         kb_scored = score_kb_entries(user_text)
         nlu_signals = nlu_intent_signals(tracker.latest_message)
         payload = build_deepseek_user_payload(user_text, kb_scored, nlu_signals)
-        content, _err = deepseek_chat(payload, system=_deepseek_multi_intent_system())
+        system = _deepseek_multi_intent_system()
+        if graph_rag_enabled():
+            evidence, _gerr = graph_rag_retrieve_evidence(user_text)
+            if evidence:
+                payload += (
+                    "\n\n【Neo4j 图谱检索结果（GraphRAG，只读；JSON 数组）】\n"
+                    + evidence
+                    + "\n\n若上述 JSON 与用户问题相关，请优先依据其中的书名、作者、主题、类目、rating、summary 等字段回答；"
+                    "不要编造 JSON 未出现的书目。若不相关或无把握，则说明并回到一般性方法与 OPAC 引导。"
+                )
+                system += (
+                    "\n\n当前轮次已附加 Neo4j 书目图谱只读检索结果；涉及具体图书目录关系时请引用该片段，无法覆盖则说明限制。"
+                )
+        content, _err = deepseek_chat(payload, system=system)
         if not content:
             dispatcher.utter_message(response="utter_data_inquiry")
             return []
@@ -1091,7 +1671,20 @@ class ActionNluFallbackRouter(Action):
             return []
 
         payload = build_deepseek_user_payload(user_text, kb_scored, nlu_signals)
-        content, _err = deepseek_chat(payload, system=_deepseek_multi_intent_system())
+        system = _deepseek_multi_intent_system()
+        if graph_rag_enabled():
+            evidence, _gerr = graph_rag_retrieve_evidence(user_text)
+            if evidence:
+                payload += (
+                    "\n\n【Neo4j 图谱检索结果（GraphRAG，只读；JSON 数组）】\n"
+                    + evidence
+                    + "\n\n若上述 JSON 与用户问题相关，请优先依据其中的书名、作者、主题、类目、rating、summary 等字段回答；"
+                    "不要编造 JSON 未出现的书目。"
+                )
+                system += (
+                    "\n\n当前轮次已附加 Neo4j 书目图谱只读检索结果；涉及图书目录关系时请引用该片段。"
+                )
+        content, _err = deepseek_chat(payload, system=system)
         if not content:
             dispatcher.utter_message(response="utter_default")
             return []

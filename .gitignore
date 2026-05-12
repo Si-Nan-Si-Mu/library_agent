@@ -4,6 +4,11 @@
 **/__pycache__/
 *.py[cod]
 
+
 # CrossWOZ 全量原始数据（仅本地生成用，勿提交）
 tmp_crosswoz/
 train.json/
+node_modules/
+
+# Neo4j Desktop / 向导生成的本地说明或凭证片段（勿提交）
+Neo4j-*-Created-*.txt

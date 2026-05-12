@@ -15,6 +15,7 @@ def deepseek_chat(
     *,
     system: Optional[str] = None,
     timeout: float = 60.0,
+    temperature: Optional[float] = None,
 ) -> Tuple[Optional[str], Optional[str]]:
     """
     返回 (assistant_text, error_code)。
@@ -33,10 +34,15 @@ def deepseek_chat(
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": user_message})
 
+    temp = (
+        temperature
+        if temperature is not None
+        else float(os.environ.get("DEEPSEEK_TEMPERATURE") or "0.6")
+    )
     payload = {
         "model": model,
         "messages": messages,
-        "temperature": float(os.environ.get("DEEPSEEK_TEMPERATURE") or "0.6"),
+        "temperature": temp,
         "max_tokens": int(os.environ.get("DEEPSEEK_MAX_TOKENS") or "1024"),
     }
 

@@ -19,7 +19,7 @@ stories:
       - action: borrow_book_form
       - active_loop: borrow_book_form
       - intent: deny
-      - action: utter_ask_borrow_confirm_then_no
+      - action: action_borrow_confirm_cancel
 
   - story: borrow call form deny
     steps:
@@ -36,7 +36,7 @@ stories:
       - action: borrow_call_form
       - active_loop: borrow_call_form
       - intent: deny
-      - action: utter_ask_borrow_confirm_then_no
+      - action: action_borrow_confirm_cancel
 
   - story: borrow confirm deny after title
     steps:
@@ -50,7 +50,7 @@ stories:
       - slot_was_set:
           - borrow_phase: single_confirm
       - intent: deny
-      - action: utter_ask_borrow_confirm_then_no
+      - action: action_borrow_confirm_cancel
 
   - story: borrow call confirm deny
     steps:
@@ -75,7 +75,7 @@ stories:
           - requested_slot: null
       - action: action_borrow_call_form_submit
       - intent: deny
-      - action: utter_ask_borrow_confirm_then_no
+      - action: action_borrow_confirm_cancel
 
   - story: borrow book success
     steps:
@@ -177,7 +177,7 @@ stories:
       - action: return_book_form
       - active_loop: return_book_form
       - intent: deny
-      - action: utter_ask_return_confirm_then_no
+      - action: action_return_confirm_cancel
 
   - story: return call form deny
     steps:
@@ -194,7 +194,7 @@ stories:
       - action: return_call_form
       - active_loop: return_call_form
       - intent: deny
-      - action: utter_ask_return_confirm_then_no
+      - action: action_return_confirm_cancel
 
   - story: return confirm deny after title
     steps:
@@ -208,7 +208,7 @@ stories:
       - slot_was_set:
           - return_phase: single_confirm
       - intent: deny
-      - action: utter_ask_return_confirm_then_no
+      - action: action_return_confirm_cancel
 
   - story: return call confirm deny
     steps:
@@ -233,7 +233,7 @@ stories:
           - requested_slot: null
       - action: action_return_call_form_submit
       - intent: deny
-      - action: utter_ask_return_confirm_then_no
+      - action: action_return_confirm_cancel
 
   - story: return book success
     steps:

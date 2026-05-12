@@ -35,11 +35,16 @@
             </select>
           </label>
           <div class="json-actions">
-            <button type="button" class="btn-json" @click="downloadExchanges">
-              下载会话 JSON
+            <button
+              type="button"
+              class="btn-json"
+              title="导出：每轮 Rasa REST 请求/原始响应/解析结果 + 对话区全部气泡（含书目表、推荐阅读载荷等）"
+              @click="downloadInteractionData"
+            >
+              下载交互数据
             </button>
-            <span v-if="exchanges.length" class="json-hint"
-              >已记录 {{ exchanges.length }} 轮</span
+            <span v-if="canDownloadInteractionData" class="json-hint"
+              >HTTP 往返 {{ exchanges.length }} 轮 · 对话气泡 {{ chatBubbleCount }} 条</span
             >
           </div>
         </div>
@@ -50,7 +55,7 @@
         class="json-debug-strip"
         aria-label="Rasa 请求响应 JSON"
       >
-        <p class="json-debug-title">各轮与后端的 JSON 交互（可展开）</p>
+        <p class="json-debug-title">各轮 HTTP 与 Rasa 返回 JSON（可展开；完整数据请用「下载交互数据」）</p>
         <div
           v-for="(ex, idx) in exchanges"
           :key="ex.id"
@@ -73,10 +78,21 @@
             :class="{
               'bubble-pending': item.kind === 'pending',
               'bubble-wide': item.kind === 'reading_recommend',
+              'bubble-catalog':
+                item.kind === 'catalog' ||
+                item.kind === 'return_catalog' ||
+                item.kind === 'overview_catalog' ||
+                item.kind === 'borrow_form',
             }"
           >
             <template v-if="item.kind === 'catalog'">
               <div class="catalog-panel">
+                <!-- eslint-disable-next-line vue/no-v-html -->
+                <div
+                  v-if="item.introText"
+                  class="catalog-intro markdown-body"
+                  v-html="markdownToSafeHtml(item.introText)"
+                />
                 <div class="catalog-header">
                   <strong>借书书目表（可查询/翻页）</strong>
                   <span>共 {{ catalogFiltered(item).length }} / {{ item.rows.length }} 本</span>
@@ -117,6 +133,7 @@
                   <thead>
                     <tr>
                       <th>书名</th>
+                      <th>简介</th>
                       <th>索书号</th>
                       <th>位置</th>
                       <th>借阅情况</th>
@@ -129,6 +146,7 @@
                       :key="`${row.call_number}-${row.book_title}`"
                     >
                       <td>{{ row.book_title }}</td>
+                      <td class="catalog-summary-cell">{{ row.book_summary || "—" }}</td>
                       <td>{{ row.call_number }}</td>
                       <td>{{ row.book_pos }}</td>
                       <td>{{ row.status }}</td>
@@ -148,7 +166,7 @@
                       </td>
                     </tr>
                     <tr v-if="!catalogPageRows(item).length">
-                      <td colspan="5" class="catalog-empty">当前查询无匹配结果</td>
+                      <td colspan="6" class="catalog-empty">当前查询无匹配结果</td>
                     </tr>
                   </tbody>
                 </table>
@@ -209,6 +227,12 @@
             </template>
             <template v-else-if="item.kind === 'return_catalog'">
               <div class="catalog-panel">
+                <!-- eslint-disable-next-line vue/no-v-html -->
+                <div
+                  v-if="item.introText"
+                  class="catalog-intro markdown-body"
+                  v-html="markdownToSafeHtml(item.introText)"
+                />
                 <div class="catalog-header">
                   <strong>还书书目表（可查询/翻页）</strong>
                   <span>共 {{ catalogFiltered(item).length }} / {{ item.rows.length }} 本</span>
@@ -236,6 +260,7 @@
                   <thead>
                     <tr>
                       <th>书名</th>
+                      <th>简介</th>
                       <th>索书号</th>
                       <th>位置</th>
                       <th>借阅时间</th>
@@ -249,6 +274,7 @@
                       :key="`${row.call_number}-${row.book_title}`"
                     >
                       <td>{{ row.book_title }}</td>
+                      <td class="catalog-summary-cell">{{ row.book_summary || "—" }}</td>
                       <td>{{ row.call_number }}</td>
                       <td>{{ row.book_pos || "-" }}</td>
                       <td>{{ row.borrow_at || "-" }}</td>
@@ -265,7 +291,7 @@
                       </td>
                     </tr>
                     <tr v-if="!catalogPageRows(item).length">
-                      <td colspan="6" class="catalog-empty">当前查询无匹配结果</td>
+                      <td colspan="7" class="catalog-empty">当前查询无匹配结果</td>
                     </tr>
                   </tbody>
                 </table>
@@ -324,9 +350,85 @@
                 </div>
               </div>
             </template>
+            <template v-else-if="item.kind === 'overview_catalog'">
+              <div class="catalog-panel overview-catalog-panel">
+                <!-- eslint-disable-next-line vue/no-v-html -->
+                <div
+                  v-if="item.introText"
+                  class="catalog-intro markdown-body"
+                  v-html="markdownToSafeHtml(item.introText)"
+                />
+                <div class="catalog-header">
+                  <strong>在架书目总览（只读）</strong>
+                  <span v-if="item.overviewStats">
+                    馆藏 {{ item.overviewStats.total }} · 在架 {{ item.overviewStats.on_shelf }} · 已借
+                    {{ item.overviewStats.borrowed }}
+                  </span>
+                </div>
+                <div class="overview-pager-hint">
+                  每次只从数据库加载尚未浏览过的页码；已看过的页会缓存在本页，返回<strong>上一页</strong>不再请求后端、也不显示加载动画。
+                </div>
+                <div class="overview-table-wrap" :class="{ 'is-loading': item.overviewLoading }">
+                  <div v-if="item.overviewLoading" class="overview-loading-overlay" aria-busy="true">
+                    <span class="overview-spinner" />
+                    <span>加载中…</span>
+                  </div>
+                  <table class="catalog-table overview-table">
+                    <thead>
+                      <tr>
+                        <th class="col-idx">序号</th>
+                        <th>书名</th>
+                        <th>索书号</th>
+                        <th>架位</th>
+                        <th>简介</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr
+                        v-for="(row, idx) in item.rows"
+                        :key="`ov-${row.call_number}-${idx}-${item.overviewPage}`"
+                      >
+                        <td class="col-idx">{{ (item.overviewPage - 1) * item.overviewPageSize + idx + 1 }}</td>
+                        <td>《{{ row.book_title }}》</td>
+                        <td>{{ row.call_number }}</td>
+                        <td>{{ row.book_pos }}</td>
+                        <td class="catalog-summary-cell">{{ row.book_summary || "—" }}</td>
+                      </tr>
+                      <tr v-if="!item.rows.length && !item.overviewLoading">
+                        <td colspan="5" class="catalog-empty">本页无在架记录</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div class="catalog-pager overview-server-pager">
+                  <button
+                    type="button"
+                    :disabled="item.overviewLoading || !item.overviewHasPrev"
+                    @click="changeOverviewCatalogPage(item, -1)"
+                  >
+                    上一页
+                  </button>
+                  <span>第 {{ item.overviewPage }} / {{ overviewCatalogTotalPages(item) }} 页</span>
+                  <button
+                    type="button"
+                    :disabled="item.overviewLoading || !item.overviewHasMore"
+                    @click="changeOverviewCatalogPage(item, 1)"
+                  >
+                    下一页
+                  </button>
+                </div>
+                <!-- eslint-disable-next-line vue/no-v-html -->
+                <div
+                  v-if="item.overviewFootnote"
+                  class="catalog-intro markdown-body overview-footnote"
+                  v-html="markdownToSafeHtml(item.overviewFootnote)"
+                />
+              </div>
+            </template>
             <template v-else-if="item.kind === 'reading_recommend'">
               <div class="rr-panel">
-                <p class="rr-intro">{{ item.readingPayload.intro }}</p>
+                <!-- eslint-disable-next-line vue/no-v-html -->
+                <div class="rr-intro markdown-body" v-html="markdownToSafeHtml(item.readingPayload.intro)" />
                 <div class="rr-topic-pill">检索主题：{{ item.readingPayload.topic }}</div>
 
                 <div class="rr-sep" role="separator" aria-hidden="true">━━━━━</div>
@@ -335,6 +437,7 @@
                   <thead>
                     <tr>
                       <th>书名</th>
+                      <th>简介</th>
                       <th>索书号</th>
                       <th>馆藏位置</th>
                       <th>状态</th>
@@ -343,12 +446,13 @@
                   <tbody>
                     <tr v-for="(row, idx) in item.readingPayload.on_shelf_rows" :key="`rr-os-${row.call_number}-${idx}`">
                       <td>《{{ row.book_title }}》</td>
+                      <td class="rr-summary">{{ row.book_summary || "—" }}</td>
                       <td>{{ row.call_number }}</td>
                       <td>{{ row.book_pos }}</td>
                       <td><span class="rr-badge rr-badge-ok">{{ row.status }}</span></td>
                     </tr>
                     <tr v-if="!item.readingPayload.on_shelf_rows.length">
-                      <td colspan="4" class="rr-empty">暂无在架记录</td>
+                      <td colspan="5" class="rr-empty">暂无在架记录</td>
                     </tr>
                   </tbody>
                 </table>
@@ -359,6 +463,7 @@
                   <thead>
                     <tr>
                       <th>书名</th>
+                      <th>简介</th>
                       <th>索书号</th>
                       <th>馆藏位置</th>
                       <th>状态</th>
@@ -367,12 +472,13 @@
                   <tbody>
                     <tr v-for="(row, idx) in item.readingPayload.borrowed_rows" :key="`rr-bw-${row.call_number}-${idx}`">
                       <td>《{{ row.book_title }}》</td>
+                      <td class="rr-summary">{{ row.book_summary || "—" }}</td>
                       <td>{{ row.call_number }}</td>
                       <td>{{ row.book_pos }}</td>
                       <td><span class="rr-badge rr-badge-out">{{ row.status }}</span></td>
                     </tr>
                     <tr v-if="!item.readingPayload.borrowed_rows.length">
-                      <td colspan="4" class="rr-empty">暂无已借出记录</td>
+                      <td colspan="5" class="rr-empty">暂无已借出记录</td>
                     </tr>
                   </tbody>
                 </table>
@@ -383,33 +489,27 @@
                   <thead>
                     <tr>
                       <th>题名</th>
+                      <th>简介</th>
                       <th>索书号</th>
-                      <th>位置</th>
                       <th>说明</th>
-                      <th>状态</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr v-for="(row, idx) in item.readingPayload.graph_rows" :key="`rr-gr-${row.call_number}-${idx}`">
                       <td>《{{ row.book_title }}》</td>
+                      <!-- eslint-disable-next-line vue/no-v-html -->
+                      <td class="rr-summary rr-md-cell markdown-body" v-html="markdownToSafeHtml(row.book_summary)" />
                       <td>{{ row.call_number }}</td>
-                      <td>{{ row.book_pos }}</td>
                       <td class="rr-hint-cell">{{ row.hint }}</td>
-                      <td>
-                        <span
-                          class="rr-badge"
-                          :class="row.catalog_match ? 'rr-badge-ok' : 'rr-badge-graph'"
-                          >{{ row.status }}</span
-                        >
-                      </td>
                     </tr>
                     <tr v-if="!item.readingPayload.graph_rows.length">
-                      <td colspan="5" class="rr-empty">暂无图谱候选或未配置 Neo4j</td>
+                      <td colspan="4" class="rr-empty">暂无图谱候选或未配置 Neo4j</td>
                     </tr>
                   </tbody>
                 </table>
 
-                <p class="rr-footnote">{{ item.readingPayload.footnote }}</p>
+                <!-- eslint-disable-next-line vue/no-v-html -->
+                <div class="rr-footnote markdown-body" v-html="markdownToSafeHtml(item.readingPayload.footnote)" />
               </div>
             </template>
             <template v-else-if="item.kind === 'borrow_form'">
@@ -543,6 +643,10 @@
                 <span class="bot-pending-dots" aria-hidden="true" />
               </div>
             </template>
+            <template v-else-if="item.role === 'bot' && item.kind === 'text'">
+              <!-- eslint-disable-next-line vue/no-v-html -->
+              <div class="md-bubble markdown-body" v-html="markdownToSafeHtml(item.text)" />
+            </template>
             <template v-else>{{ item.text }}</template>
           </div>
         </div>
@@ -604,6 +708,16 @@
 </template>
 
 <script>
+import MarkdownIt from "markdown-it";
+import DOMPurify from "dompurify";
+
+/** GFM 风格 Markdown（换行、列表、加粗等）；源码中的 HTML 由 markdown-it 转义后再经 DOMPurify 清洗。 */
+const mdRenderer = new MarkdownIt({
+  html: false,
+  linkify: true,
+  breaks: true,
+});
+
 const STORAGE_ENDPOINT_KEY = "rasa_endpoint";
 const STORAGE_SENDER_KEY = "rasa_sender_id";
 const STORAGE_DEBUG_KEY = "rasa_debug_log";
@@ -648,7 +762,14 @@ export default {
       returningQueueSubmitting: false,
     };
   },
-  computed: {},
+  computed: {
+    chatBubbleCount() {
+      return this.messages.filter((m) => m && (m.role === "user" || m.role === "bot")).length;
+    },
+    canDownloadInteractionData() {
+      return this.exchanges.length > 0 || this.chatBubbleCount > 0;
+    },
+  },
   watch: {},
   mounted() {
     const savedEndpoint = localStorage.getItem(STORAGE_ENDPOINT_KEY);
@@ -688,6 +809,21 @@ export default {
     }
   },
   methods: {
+    /**
+     * 将 Markdown 转为安全 HTML（供 v-html）。
+     * @param {unknown} src
+     * @returns {string}
+     */
+    markdownToSafeHtml(src) {
+      const s = typeof src === "string" ? src.trim() : "";
+      if (!s) return "";
+      try {
+        const raw = mdRenderer.render(s);
+        return DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } });
+      } catch {
+        return DOMPurify.sanitize(String(src));
+      }
+    },
     persistDebugLog() {
       localStorage.setItem(STORAGE_DEBUG_KEY, String(this.debugLog));
     },
@@ -704,23 +840,55 @@ export default {
     formatExchangeJson(ex) {
       return JSON.stringify(ex, null, 2);
     },
-    downloadExchanges() {
+    /**
+     * 深拷贝为可 JSON 序列化的纯数据。
+     * @template T
+     * @param {T} obj
+     * @param {T | null} fallback
+     * @returns {T | null}
+     */
+    safeJsonClone(obj, fallback = null) {
+      try {
+        return JSON.parse(JSON.stringify(obj));
+      } catch (e) {
+        return fallback;
+      }
+    },
+    downloadInteractionData() {
       const pack = {
+        exportType: "library_agent_full_interaction",
         exportedAt: new Date().toISOString(),
         client: "lib_agent_vue",
         endpoint: this.endpoint,
         senderId: this.senderId,
-        turns: this.exchanges,
+        densityMode: this.densityMode,
+        debugLogEnabled: this.debugLog,
+        messages: this.safeJsonClone(this.messages, []),
+        borrowQueue: this.safeJsonClone(this.borrowQueue, []),
+        returnQueue: this.safeJsonClone(this.returnQueue, []),
+        currentBorrowPolicy: this.safeJsonClone(this.currentBorrowPolicy, null),
+        currentReturnPolicy: this.safeJsonClone(this.currentReturnPolicy, null),
+        borrowCatalogRowsSnapshot: this.safeJsonClone(this.borrowCatalogRows, []),
+        returnCatalogRowsSnapshot: this.safeJsonClone(this.returnCatalogRows, []),
+        borrowFormModalVisible: !!this.borrowFormModalVisible,
+        borrowFormSelectedBooks: this.safeJsonClone(this.borrowFormSelectedBooks, []),
+        borrowFormDraft: this.safeJsonClone(this.borrowFormDraft, {}),
+        /** 每轮 Rasa REST：请求体、HTTP 元信息、rawText、parsed（含 text / custom 等） */
+        rasaRestExchanges: this.safeJsonClone(this.exchanges, []),
       };
       const text = JSON.stringify(pack, null, 2);
       const blob = new Blob([text], { type: "application/json;charset=utf-8" });
-      const fileName = `rasa-library-chat-${Date.now()}.json`;
+      const fileName = `library-agent-interaction-${Date.now()}.json`;
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
       a.download = fileName;
       a.click();
       URL.revokeObjectURL(a.href);
-      this.logRasa("已下载 JSON", { fileName, turns: this.exchanges.length });
+      this.logRasa("已下载交互数据", {
+        fileName,
+        exchanges: this.exchanges.length,
+        messages: this.messages.length,
+      });
     },
     /**
      * @param {string} title
@@ -758,7 +926,7 @@ export default {
       this.currentReturnPolicy = null;
       this.borrowingQueueSubmitting = false;
       this.returningQueueSubmitting = false;
-      this.pushMessage("system", "聊天记录与 JSON 调试记录已清空。");
+      this.pushMessage("system", "聊天记录、交互导出数据与 JSON 调试记录已清空。");
     },
     queueLimit(item) {
       const policy = (item && item.borrowPolicy) || this.currentBorrowPolicy;
@@ -900,37 +1068,65 @@ export default {
         }
       });
     },
-    /** 将一轮 Rasa 返回中的纯文本合并为一条；custom 书目表按出现顺序展示，文本统一放在其后。 */
+    /** 将一轮 Rasa 返回中的纯文本合并为一条；书目/还书/推荐阅读与引导语合并到同一气泡（introText）。Rasa 常把 text 与 custom 拆成两条数组元素，需把前一条纯 text 并入下一条结构化消息。 */
     applyRasaResponseMessages(data, muteBotMessages) {
       if (!Array.isArray(data) || !data.length) {
         return [];
       }
-      const textChunks = [];
       const actions = [];
+      let pendingIntro = "";
+
+      const mergeIntroParts = (...parts) =>
+        parts
+          .map((x) => (typeof x === "string" ? x.trim() : ""))
+          .filter(Boolean)
+          .join("\n\n");
+
       for (let index = 0; index < data.length; index += 1) {
         const item = data[index];
+        const textOne =
+          item && typeof item.text === "string" && item.text.trim() ? item.text.trim() : "";
         const payload =
-          item && item.custom && typeof item.custom === "object" ? item.custom : item;
+          item && item.custom && typeof item.custom === "object" ? item.custom : null;
+
         if (payload && payload.payload_type === "reading_recommend") {
-          actions.push({ type: "reading_recommend", payload });
+          const introText = mergeIntroParts(pendingIntro, textOne);
+          pendingIntro = "";
+          actions.push({ type: "reading_recommend", payload, introText });
           continue;
         }
         if (payload && payload.payload_type === "borrow_catalog" && Array.isArray(payload.rows)) {
-          actions.push({ type: "borrow_catalog", payload });
+          const introText = mergeIntroParts(pendingIntro, textOne);
+          pendingIntro = "";
+          actions.push({ type: "borrow_catalog", payload, introText });
           continue;
         }
         if (payload && payload.payload_type === "return_catalog" && Array.isArray(payload.rows)) {
-          actions.push({ type: "return_catalog", payload });
+          const introText = mergeIntroParts(pendingIntro, textOne);
+          pendingIntro = "";
+          actions.push({ type: "return_catalog", payload, introText });
           continue;
         }
-        if (item && typeof item.text === "string" && item.text.trim()) {
-          textChunks.push(item.text.trim());
+        if (payload && payload.payload_type === "overview_catalog") {
+          if (payload.mode === "replace_page" && payload.target_message_id) {
+            this.patchOverviewCatalogMessage(String(payload.target_message_id), payload);
+            pendingIntro = "";
+            continue;
+          }
+          if (Array.isArray(payload.rows)) {
+            const introText = mergeIntroParts(pendingIntro, textOne);
+            pendingIntro = "";
+            actions.push({ type: "overview_catalog", payload, introText });
+            continue;
+          }
+        }
+        if (textOne) {
+          pendingIntro = mergeIntroParts(pendingIntro, textOne);
         } else if (this.debugLog && item) {
           this.logRasa(`← 消息项 #${index}（无 text，完整对象）`, item);
         }
       }
-      const mergedText =
-        textChunks.length > 0 ? textChunks.join("\n\n") : "";
+      const mergedText = pendingIntro.trim();
 
       const runCatalog = () => {
         for (const a of actions) {
@@ -938,13 +1134,15 @@ export default {
           if (a.type === "borrow_catalog") {
             this.borrowCatalogRows = p.rows;
             this.currentBorrowPolicy = p.borrow_policy || null;
-            this.pushCatalogMessage(p.rows, p.borrow_policy || null);
+            this.pushCatalogMessage(p.rows, p.borrow_policy || null, a.introText || "");
           } else if (a.type === "return_catalog") {
             this.returnCatalogRows = p.rows;
             this.currentReturnPolicy = p.return_policy || null;
-            this.pushReturnCatalogMessage(p.rows, p.return_policy || null);
+            this.pushReturnCatalogMessage(p.rows, p.return_policy || null, a.introText || "");
           } else if (a.type === "reading_recommend") {
-            this.pushReadingRecommendMessage(p);
+            this.pushReadingRecommendMessage(p, a.introText || "");
+          } else if (a.type === "overview_catalog") {
+            this.pushOverviewCatalogMessage(p, a.introText || "");
           }
         }
       };
@@ -954,9 +1152,9 @@ export default {
         this.pushMessage("bot", mergedText);
       }
       if (this.debugLog && muteBotMessages) {
-        textChunks.forEach((t, index) => {
-          this.logRasa(`← 静默轮次 文本 #${index}`, t);
-        });
+        if (mergedText) {
+          this.logRasa("← 静默轮次 合并文本", mergedText);
+        }
       }
       this.scrollChatToBottom();
       return data;
@@ -1290,12 +1488,13 @@ export default {
         };
       });
     },
-    pushCatalogMessage(rows, borrowPolicy = null) {
+    pushCatalogMessage(rows, borrowPolicy = null, introText = "") {
       this.messages.push({
         id: `${Date.now()}-${Math.random()}`,
         role: "bot",
         kind: "catalog",
         text: "",
+        introText: typeof introText === "string" ? introText : "",
         rows: Array.isArray(rows) ? rows : [],
         borrowPolicy,
         catalogQuery: "",
@@ -1309,12 +1508,13 @@ export default {
         }
       });
     },
-    pushReturnCatalogMessage(rows, returnPolicy = null) {
+    pushReturnCatalogMessage(rows, returnPolicy = null, introText = "") {
       this.messages.push({
         id: `${Date.now()}-${Math.random()}`,
         role: "bot",
         kind: "return_catalog",
         text: "",
+        introText: typeof introText === "string" ? introText : "",
         rows: Array.isArray(rows) ? rows : [],
         returnPolicy,
         catalogQuery: "",
@@ -1328,11 +1528,139 @@ export default {
         }
       });
     },
-    pushReadingRecommendMessage(payload) {
+    pushOverviewCatalogMessage(payload, introText = "") {
       const p = payload && typeof payload === "object" ? payload : {};
+      this.messages.push({
+        id: `${Date.now()}-${Math.random()}`,
+        role: "bot",
+        kind: "overview_catalog",
+        text: "",
+        introText: typeof introText === "string" ? introText : "",
+        overviewStats: p.stats && typeof p.stats === "object" ? p.stats : null,
+        overviewPage: p.page != null ? Number(p.page) : 1,
+        overviewPageSize: p.page_size != null ? Number(p.page_size) : 10,
+        overviewHasPrev: !!p.has_prev,
+        overviewHasMore: !!p.has_more,
+        rows: Array.isArray(p.rows) ? p.rows : [],
+        overviewFootnote: typeof p.footnote === "string" ? p.footnote : "",
+        overviewLoading: false,
+        overviewPageCache: (() => {
+          const pg = p.page != null ? Number(p.page) : 1;
+          const rows = Array.isArray(p.rows) ? p.rows.map((r) => ({ ...r })) : [];
+          return {
+            [String(pg)]: {
+              rows,
+              has_prev: !!p.has_prev,
+              has_more: !!p.has_more,
+              stats: p.stats && typeof p.stats === "object" ? { ...p.stats } : null,
+            },
+          };
+        })(),
+      });
+      this.$nextTick(() => {
+        const chatEl = this.$refs.chatRef;
+        if (chatEl) {
+          chatEl.scrollTop = chatEl.scrollHeight;
+        }
+      });
+    },
+    patchOverviewCatalogMessage(id, p) {
+      const i = this.messages.findIndex((m) => m && m.id === id && m.kind === "overview_catalog");
+      if (i < 0) return false;
+      const cur = this.messages[i];
+      const pk = String(p.page != null ? Number(p.page) : cur.overviewPage || 1);
+      const prevCache = cur.overviewPageCache && typeof cur.overviewPageCache === "object" ? cur.overviewPageCache : {};
+      const cache = { ...prevCache };
+      cache[pk] = {
+        rows: Array.isArray(p.rows) ? p.rows.map((r) => ({ ...r })) : [],
+        has_prev: !!p.has_prev,
+        has_more: !!p.has_more,
+        stats: p.stats && typeof p.stats === "object" ? { ...p.stats } : cur.overviewStats,
+      };
+      this.messages.splice(i, 1, {
+        ...cur,
+        overviewLoading: false,
+        overviewPageCache: cache,
+        overviewStats: p.stats && typeof p.stats === "object" ? p.stats : cur.overviewStats,
+        overviewPage: p.page != null ? Number(p.page) : cur.overviewPage,
+        overviewPageSize: p.page_size != null ? Number(p.page_size) : cur.overviewPageSize,
+        overviewHasPrev: !!p.has_prev,
+        overviewHasMore: !!p.has_more,
+        rows: Array.isArray(p.rows) ? p.rows : [],
+        overviewFootnote:
+          typeof p.footnote === "string" ? p.footnote : cur.overviewFootnote || "",
+      });
+      return true;
+    },
+    overviewCatalogTotalPages(item) {
+      const os = Number(item && item.overviewStats && item.overviewStats.on_shelf) || 0;
+      const ps = Number(item && item.overviewPageSize) || 10;
+      if (!os) return 1;
+      return Math.max(1, Math.ceil(os / ps));
+    },
+    async changeOverviewCatalogPage(item, delta) {
+      if (!item || item.overviewLoading || !this.endpoint) return;
+      const msgId = item.id;
+      const live = this.messages.find((m) => m && m.id === msgId && m.kind === "overview_catalog");
+      if (!live) return;
+
+      const ps = Number(live.overviewPageSize) || 10;
+      const cur = Number(live.overviewPage) || 1;
+      const nextPage = cur + delta;
+      if (nextPage < 1) return;
+      const totalPages = this.overviewCatalogTotalPages(live);
+      if (nextPage > totalPages) return;
+
+      const cache = live.overviewPageCache && typeof live.overviewPageCache === "object" ? live.overviewPageCache : {};
+      const hit = cache[String(nextPage)];
+      if (hit && Array.isArray(hit.rows)) {
+        const idx = this.messages.findIndex((m) => m && m.id === msgId && m.kind === "overview_catalog");
+        if (idx < 0) return;
+        const curMsg = this.messages[idx];
+        this.messages.splice(idx, 1, {
+          ...curMsg,
+          overviewLoading: false,
+          overviewPage: nextPage,
+          rows: hit.rows.map((r) => ({ ...r })),
+          overviewHasPrev: !!hit.has_prev,
+          overviewHasMore: !!hit.has_more,
+          overviewStats: hit.stats && typeof hit.stats === "object" ? hit.stats : curMsg.overviewStats,
+          overviewPageCache: { ...cache },
+        });
+        return;
+      }
+
+      live.overviewLoading = true;
+      try {
+        const token = delta < 0 ? "__LIB_OVERVIEW_PREV__" : "__LIB_OVERVIEW_PAGE__";
+        await this.sendToRasa(
+          token,
+          {
+            overview_catalog: {
+              page: nextPage,
+              page_size: ps,
+              target_message_id: msgId,
+            },
+          },
+          { muteBotMessages: true },
+        );
+      } finally {
+        const L = this.messages.find((m) => m && m.id === msgId && m.kind === "overview_catalog");
+        if (L) {
+          L.overviewLoading = false;
+        } else {
+          item.overviewLoading = false;
+        }
+      }
+    },
+    pushReadingRecommendMessage(payload, introPrefix = "") {
+      const p = payload && typeof payload === "object" ? payload : {};
+      const prefix = (introPrefix || "").trim();
+      const baseIntro = typeof p.intro === "string" ? p.intro : "";
+      const introMerged = [prefix, baseIntro].filter(Boolean).join("\n\n");
       const readingPayload = {
         topic: typeof p.topic === "string" ? p.topic : "",
-        intro: typeof p.intro === "string" ? p.intro : "",
+        intro: introMerged,
         on_shelf_rows: Array.isArray(p.on_shelf_rows) ? p.on_shelf_rows : [],
         borrowed_rows: Array.isArray(p.borrowed_rows) ? p.borrowed_rows : [],
         graph_rows: Array.isArray(p.graph_rows) ? p.graph_rows : [],
@@ -1354,7 +1682,8 @@ export default {
       return rows.filter(
         (x) =>
           (x.book_title || "").toLowerCase().includes(q) ||
-          (x.call_number || "").toLowerCase().includes(q)
+          (x.call_number || "").toLowerCase().includes(q) ||
+          (x.book_summary || "").toLowerCase().includes(q)
       );
     },
     catalogTotalPages(item) {
@@ -1514,7 +1843,7 @@ export default {
           if (!muteBotMessages) {
             this.pushMessage(
               "bot",
-              "（暂无回复：后端返回空列表。请确认 Rasa 已加载模型；在 backend 执行 rasa train 后重启 API。可展开「页面内 JSON」或下载 JSON 查看完整响应。）"
+              "（暂无回复：后端返回空列表。请确认 Rasa 已加载模型；在 backend 执行 rasa train 后重启 API。可展开「页面内 JSON」或下载交互数据查看完整响应。）"
             );
           }
           return [];
@@ -1752,6 +2081,17 @@ body {
   background: #f8fbff;
 }
 
+.catalog-intro {
+  margin-bottom: 10px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: #0f172a;
+}
+
+.catalog-intro.markdown-body {
+  white-space: normal;
+}
+
 .catalog-header {
   display: flex;
   justify-content: space-between;
@@ -1836,6 +2176,15 @@ body {
   text-align: left;
 }
 
+.catalog-summary-cell,
+.rr-summary {
+  font-size: 12px;
+  color: #475569;
+  line-height: 1.35;
+  max-width: 14rem;
+  word-break: break-word;
+}
+
 .btn-pick {
   border: 1px solid #2563eb;
   color: #2563eb;
@@ -1861,6 +2210,64 @@ body {
   justify-content: flex-end;
   align-items: center;
   gap: 8px;
+}
+
+.overview-catalog-panel .overview-pager-hint {
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 8px;
+}
+
+.overview-table-wrap {
+  position: relative;
+  min-height: 120px;
+}
+
+.overview-table-wrap.is-loading .overview-table {
+  opacity: 0.45;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.overview-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 13px;
+  color: #0f172a;
+  background: rgba(248, 251, 255, 0.82);
+  border-radius: 8px;
+}
+
+.overview-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid #cbd5e1;
+  border-top-color: #2563eb;
+  animation: overview-spin 0.75s linear infinite;
+}
+
+@keyframes overview-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.overview-table .col-idx {
+  width: 48px;
+  text-align: center;
+  color: #64748b;
+}
+
+.overview-footnote {
+  margin-top: 10px;
+  font-size: 13px;
 }
 
 .borrow-form-panel {
@@ -2070,6 +2477,20 @@ body {
   max-width: min(96%, 920px);
 }
 
+/* 借书/还书书目表、借阅表单：固定气泡宽度，避免随内容或分页在 82% 与窄版之间跳动 */
+.row.bot .bubble.bubble-catalog {
+  width: 880px;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.row.bot .bubble.bubble-catalog .catalog-panel,
+.row.bot .bubble.bubble-catalog .borrow-form-panel {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
 .rr-panel {
   width: 100%;
 }
@@ -2080,6 +2501,87 @@ body {
   margin: 0 0 8px;
   line-height: 1.55;
   white-space: normal;
+}
+
+/* Markdown：DeepSeek 回复与扩展推荐简介 */
+.markdown-body {
+  white-space: normal;
+}
+
+.markdown-body > *:first-child {
+  margin-top: 0;
+}
+
+.markdown-body > *:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body p {
+  margin: 0.4em 0;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3 {
+  margin: 0.5em 0 0.35em;
+  font-size: 1.05em;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  margin: 0.35em 0;
+  padding-left: 1.35em;
+}
+
+.markdown-body li {
+  margin: 0.15em 0;
+}
+
+.markdown-body strong {
+  font-weight: 700;
+  color: #111827;
+}
+
+.markdown-body code {
+  font-size: 0.9em;
+  background: #f1f5f9;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
+.markdown-body pre {
+  margin: 0.4em 0;
+  padding: 8px;
+  background: #1e293b;
+  color: #e2e8f0;
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: 12px;
+}
+
+.markdown-body pre code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+
+.markdown-body a {
+  color: #1d4ed8;
+}
+
+.md-bubble {
+  white-space: normal;
+}
+
+.row.bot .bubble .md-bubble {
+  min-width: 0;
+}
+
+.rr-md-cell.markdown-body {
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .rr-topic-pill {

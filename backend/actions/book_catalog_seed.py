@@ -1,10 +1,16 @@
-"""生成馆藏书目演示数据（≥120 条），供 library_db 在库表不足时批量插入。"""
+"""生成馆藏书目演示数据，供 neo4j_library_store 在向 Neo4j 灌库时按需补全条数。
+
+默认不再批量灌入「仅馆藏属性、无 WRITTEN_BY 等图谱边」的 SEED 行，以免图中出现大量孤立 :LibraryBook。
+若需恢复旧行为（补至约 120 条），请设置环境变量 ``LIB_AGENT_MIN_CATALOG=120``。
+"""
 from __future__ import annotations
+
+import os
 
 from typing import List, Tuple
 
-# 与早期演示数据风格一致：(book_key, lib_book, book_pos, is_borrow)
-Row = Tuple[str, str, str, int]
+# (book_key, lib_book, book_pos, is_borrow, summary) — 馆藏以 book_key 唯一标识，其余为节点属性
+Row = Tuple[str, str, str, int, str]
 
 _SUBJECTS = (
     "微积分",
@@ -284,9 +290,14 @@ def generate_bulk_rows(count: int, *, key_offset: int = 0) -> List[Row]:
         pos = f"{_ZONES[k % len(_ZONES)]}-{(k % 89) + 1:02d}架"
         # 约每 6 本有一本在「已借出」状态，便于演示归还
         is_borrow = 1 if (i % 6 == 0) else 0
-        out.append((book_key, lib_book, pos, is_borrow))
+        summary = f"演示馆藏教参《{subj}》分辑，索书号唯一键 {book_key}；在架与否见借阅标记。"
+        out.append((book_key, lib_book, pos, is_borrow, summary))
     return out
 
 
 def minimum_catalog_size() -> int:
-    return 120
+    """目标馆藏条数下限；达到后不再调用 ``generate_bulk_rows``。默认 0（不制造孤立 SEED 副本）。"""
+    raw = (os.environ.get("LIB_AGENT_MIN_CATALOG") or "").strip()
+    if raw.isdigit():
+        return max(0, int(raw))
+    return 0

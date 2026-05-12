@@ -17,9 +17,15 @@ intents:
   - space_booking:
       use_entities: []
   - reading_recommend:
-      use_entities: []
+      use_entities:
+        - topic
+        - author
   - data_inquiry
   - book_overview
+  - book_overview_pager
+  - book_introduce:
+      use_entities:
+        - book_title
   - borrow_record_query
 
 entities:
@@ -28,6 +34,7 @@ entities:
   - room_type
   - time_slot
   - topic
+  - author
   - floor_zone
 
 slots:
@@ -145,6 +152,13 @@ slots:
       - type: from_entity
         entity: topic
 
+  author:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: from_entity
+        entity: author
+
   last_recommended_title:
     type: text
     influence_conversation: false
@@ -173,7 +187,6 @@ forms:
       - goodbye
       - ask_capabilities
       - borrow_guide
-      - reading_recommend
       - space_booking
       - return_book
       - faq
@@ -187,7 +200,6 @@ forms:
       - ask_capabilities
       - borrow_guide
       - data_inquiry
-      - reading_recommend
       - space_booking
       - return_book
       - faq
@@ -200,7 +212,6 @@ forms:
       - goodbye
       - ask_capabilities
       - borrow_guide
-      - reading_recommend
       - space_booking
       - borrow_book
       - faq
@@ -214,7 +225,6 @@ forms:
       - ask_capabilities
       - borrow_guide
       - data_inquiry
-      - reading_recommend
       - space_booking
       - borrow_book
       - faq
@@ -229,7 +239,6 @@ forms:
       - ask_capabilities
       - borrow_guide
       - data_inquiry
-      - reading_recommend
       - borrow_book
       - return_book
       - faq
@@ -317,6 +326,7 @@ actions:
   - validate_borrow_book_form
   - action_ask_borrow_book_form_book_title
   - action_borrow_book_form_submit
+  - action_borrow_confirm_cancel
   - validate_borrow_call_form
   - action_borrow_call_form_submit
   - action_borrow_book
@@ -328,6 +338,7 @@ actions:
   - validate_return_book_form
   - action_ask_return_book_form_book_title
   - action_return_book_form_submit
+  - action_return_confirm_cancel
   - validate_return_call_form
   - action_return_call_form_submit
   - action_return_book
@@ -347,6 +358,7 @@ actions:
 
   - action_reading_recommend
   - action_book_overview
+  - action_book_introduce
   - action_borrow_record_query
   - action_data_inquiry
   - action_nlu_fallback_router

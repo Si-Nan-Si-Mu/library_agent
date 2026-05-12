@@ -1,22 +1,22 @@
 # library_agent
 
-基于 [Rasa](https://rasa.com/) 的中文**图书馆智能对话助手**（演示）：借还书、借阅指引、空间预约、推荐阅读、数据咨询话术、馆规 FAQ 等；书目借还与推荐阅读使用 **SQLite** 演示库（见 `backend/actions/library_db.py`）。
+基于 [Rasa](https://rasa.com/) 的中文**图书馆智能对话助手**（演示）：借还书、借阅指引、空间预约、推荐阅读、数据咨询话术、馆规 FAQ 等；**Neo4j** 中 `:LibraryBook`（`book_key` 唯一）同时承载**馆藏副本**（架位、在架标记）与 **CSV 导入的书目知识**（作者/类目/主题关系及 `rating`、`summary` 等），`:BorrowRecord` 记录借阅流水。
 
 ## 快速开始（Windows）
 
 1. 启动 Action：`backend\start_actions.ps1`
 2. 启动 Rasa：`backend\start_rasa.ps1 -RunOnly -Port 5005`
-3. 启动前端：`front\lib_agent_vue` 下 `pnpm serve`
+3. 启动前端：在 `front\lib_agent_vue` 执行 `npm install` 后 `npm run dev`（默认 <http://localhost:8080>）
 
 > 重要：修改 `backend/actions/actions.py` 后，需**重启 Action + Rasa**；仅重启 Rasa 不会加载新的 Action 代码。
 
 ## 项目简介
 
 - 后端基于 `Rasa + rasa-sdk`，实现借书、还书、空间预约、FAQ、推荐阅读等多轮对话。
-- 数据层使用 `SQLite` 演示库，支持在架/已借状态切换与基础书目检索。
-- 前端为 Vue 聊天页，通过 REST webhook 对接 `Rasa API`。
+- 数据层使用 **Neo4j**：馆藏在架/已借状态、借阅流水与基础书目检索均由图数据库维护（需配置 `NEO4J_*`，见 `.env.example`）。
+- 前端为 **Vue 3 + Vite** 聊天页，通过 REST webhook 对接 `Rasa API`。
 - 当前定位为演示与联调工程，可逐步扩展到真实 OPAC/流通/预约系统。
-- DeepSeek 仅用于 `data_inquiry` 场景的生成式说明；**推荐阅读**由 Action 下发 `reading_recommend` 结构化载荷（SQLite + 可选 Neo4j），Vue 以**分节表格**展示；借还书、书籍总览等主流程由规则 + SQLite 数据驱动。
+- DeepSeek 用于 `data_inquiry` 与 GraphRAG（NL2Cypher）等场景的生成式说明；**推荐阅读**由 Action 下发 `reading_recommend` 结构化载荷（Neo4j 馆藏 + 图谱扩展），Vue 以**分节表格**展示；**书籍总览**为 `overview_catalog` 宽气泡（Neo4j 按页查询、已访问页前端缓存、内部翻页意图 `book_overview_pager`）；**单书介绍**意图 `book_introduce` 由 `action_book_introduce` 聚合馆藏与图谱事实并可选 DeepSeek 导读；借还书等主流程由规则 + Neo4j 数据驱动。
 - 前端对普通 `text` 回复合并为单条气泡，并在等待 Rasa 时显示「查询中 / 思考中 / 回复中」占位（`App.vue`）。
 
 ## 系统架构与智能体界定
@@ -29,9 +29,9 @@
 | ---- | -------- | ---------------------- |
 | **交互与表示** | 统一入口、消息展示、结构化辅助（检索结果、确认借还等） | `front/lib_agent_vue` 与 Rasa REST/Webhook |
 | **对话编排** | 意图识别、槽位/表单、故事与规则、异常与兜底 | `backend` 下 NLU、Core、`domain.yml`、自定义 Action 入口 |
-| **业务与数据** | 书目状态、借阅额度、流水写入、图谱与检索 | `backend/actions/library_db.py`、`borrow_record` 等；可选 `neo4j_graph.py` / `kg_module` |
+| **业务与数据** | 书目状态、借阅额度、流水写入、图谱与检索 | `backend/actions/neo4j_library_store.py`、`neo4j_graph.py`、`kg_module` |
 
-借书、还书等流程可以**由对话触发**（表单填槽 → Action 校验 → 写库），也可以配合前端的**列表、模态框、序号选择**等结构化交互完成；二者应调用**同一套**业务逻辑（本项目通过 Rasa Action 与 SQLite 演示库体现）。这种拆分符合常见软件实践：**对话负责「理解与引导」，业务模块负责「可测试、可审计的执行」**。
+借书、还书等流程可以**由对话触发**（表单填槽 → Action 校验 → 写库），也可以配合前端的**列表、模态框、序号选择**等结构化交互完成；二者应调用**同一套**业务逻辑（本项目通过 Rasa Action 与 Neo4j 书目/流通子图体现）。这种拆分符合常见软件实践：**对话负责「理解与引导」，业务模块负责「可测试、可审计的执行」**。
 
 ### 为何仍可将本系统称为「智能体」
 
@@ -55,8 +55,7 @@ flowchart LR
   U[用户] --> FE[前端 Vue]
   FE --> RASA[Rasa NLU/Core]
   RASA --> ACT[自定义 Actions]
-  ACT --> DB[(SQLite 演示库)]
-  ACT --> NEO[(Neo4j 可选)]
+  ACT --> NEO[(Neo4j：馆藏 + 知识图谱)]
   ACT --> LLM[DeepSeek 可选]
 ```
 
@@ -64,32 +63,24 @@ flowchart LR
 
 ```text
 library_agent/
-├── backend/                 # Rasa 工程（domain/data/actions/config）
-│   ├── actions/             # 自定义 Action、SQLite、Neo4j 图谱查询
-│   ├── kg_module/           # Neo4j 约束与 CSV 导入（GraphRAG 数据层）
-│   ├── data/                # NLU、rules、stories、responses、词典
-│   ├── tests/               # 对话回归测试数据
-│   ├── config.yml           # NLU pipeline 与 policy
-│   ├── domain.yml           # 意图/实体/槽位/表单/回复
-│   └── start_*.ps1          # Windows 启动脚本（Rasa/Action）
-├── deploy/                  # Docker Compose + Rasa / Action 镜像构建
-├── front/lib_agent_vue/     # Vue 对话前端
-├── docs/                    # 操作指引、改造说明
-├── sql/                     # SQLite / MySQL 参考脚本
-├── .env.example             # DeepSeek 等环境变量示例（复制为 .env）
-└── README.md                # 项目入口文档
+├── backend/                 # Rasa、Action、Neo4j 导入与 NLU 数据
+├── deploy/                  # Docker Compose
+├── docs/                    # 文档总索引见 docs/README.md
+├── front/lib_agent_vue/     # Vue + Vite 聊天页
+├── sql/                     # （可选）SQL 注释脚本
+├── .env.example
+└── README.md                # 项目入口与更新记录
 ```
 
 | 文档 | 说明 |
 | ---- | ---- |
-| [**docs/操作指引.md**](docs/操作指引.md) | Windows + Conda、双终端启动 Rasa / Action、Vue 与 Webhook、常见问题 |
-| [**docs/图书馆智能助手改造说明.md**](docs/图书馆智能助手改造说明.md) | 领域改造、**已完成/未完成**标注、外部系统对接与产品化清单 |
+| [**docs/README.md**](docs/README.md) | **文档总索引**（操作指引、改造说明、图谱本体、扩展路线、CrossWOZ） |
+| [**docs/操作指引.md**](docs/操作指引.md) | Windows + Conda、Rasa / Action / Vue、Webhook、常见问题 |
+| [**docs/图书馆智能助手改造说明.md**](docs/图书馆智能助手改造说明.md) | 领域改造、完成状态、对接清单 |
 
-扩展路线（Neo4j / GraphRAG 等）见 [**README_v2.md**](README_v2.md)。
+**知识图谱与馆藏**：`backend/kg_module/`、`backend/actions/neo4j_library_store.py`、`backend/actions/neo4j_graph.py`；未配置 `NEO4J_*` 时借还与推荐阅读不可用。本体见 [docs/kg_ontology_v2.md](docs/kg_ontology_v2.md)。扩展路线见 [docs/扩展路线与环境.md](docs/扩展路线与环境.md)。
 
-**知识图谱（主工程 `backend/`）**：`backend/kg_module/`（CSV 导入、Schema）、`backend/actions/neo4j_graph.py`；`reading_recommend` 在配置 `NEO4J_PASSWORD` 时拉取图谱候选并在前端第三张表展示，否则该表为空；馆藏事实始终来自 SQLite。本体规划见 [docs/kg_ontology_v2.md](docs/kg_ontology_v2.md)。
-
-**容器部署**：仓库根目录复制 `.env.example` 为 `.env` 并填写 `DEEPSEEK_API_KEY` 后，执行 `docker compose -f deploy/docker-compose.yml up --build`。Rasa 使用 `backend/endpoints.docker.yml` 连接名为 `actions` 的服务；未配置密钥时「数据类咨询」仍回退为固定话术。
+**容器部署**：复制 `.env.example` 为 `.env` 后执行 `docker compose -f deploy/docker-compose.yml up --build`。
 
 **远程仓库**：`git@github.com:Si-Nan-Si-Mu/library_agent.git`
 
@@ -101,6 +92,9 @@ library_agent/
 
 | 日期 | 摘要 |
 | ---- | ---- |
+| 2026-05-13 | **书籍总览**：`overview_catalog` 气泡 + Neo4j 分页（`get_library_collection_stats` / `list_on_shelf_overview_page`）；`book_overview_pager` 内部翻页；Vue **已访问页缓存**（返回上一页不请求、无加载层）、修正翻页后加载态残留；`nlu.yml` 与 `intent_retrieval_kb.json` 增补馆藏总览错别字与口语。**单书介绍**：新意图 `book_introduce`、`action_book_introduce`（馆藏 JSON + 图谱 + DeepSeek，`BOOK_INTRO_DEEPSEEK` / `.env.example`）。**借还体验**：表单不再忽略 `reading_recommend` 等以便打断；确认阶段 `deny` 规则与 `action_borrow_confirm_cancel` / `action_return_confirm_cancel` 清槽；`nlu.yml` 增补「否」等。**工程**：Neo4j 馆藏脚本与 Vite 前端迁移、根目录 `package.json` 等合并。**文档**：`操作指引` 增补总览气泡与单书介绍排障。合并后请 **`rasa train`** 并重启 Action + Rasa。 |
+| 2026-05-12 | **文档**：`docs/README.md` 为总索引；新增 `扩展路线与环境.md`、`CrossWOZ语料说明.md`；删 `README_v2.md`、`backend/docs/ontology_v2.md`；子项目 README 指向 `docs/`。**前端**：`lib_agent_vue` 迁 **Vite 5 + Vue 3.5**；机器人/书目表/推荐阅读等 **Markdown**（`markdown-it` + DOMPurify）；扩展推荐表去掉位置/状态列、图谱简介可走 DeepSeek（`READING_GRAPH_INTRO_DEEPSEEK`）；`jsconfig.json` 收敛 TS 服务对 `@types` 的误解析。**后端**：推荐阅读主导读强制 Markdown 排版；`_deepseek_multi_intent_system` 修复；`nlu.yml` 增加短主题例、将 `borrow_book` 中「人工智能相关书」改为「我要借…」减轻与 `reading_recommend` 冲突。合并后请 **`rasa train`** 并重启 Action + Rasa。 |
+| 2026-05-09 | 移除 SQLite：`library_db` 与 `sql/library_book_sqlite.sql` 删除；馆藏书目与流通迁入 Neo4j（`neo4j_library_store.py`，`:LibraryBook`、`:BorrowRecord`）；GraphRAG 提示扩展馆藏模型。 |
 | 2026-05-05 | 推荐阅读改为 `reading_recommend` 结构化载荷 + Vue 分节表格；`library_db` 主题检索扩展/排序与演示种子增补；前端合并多段文本、等待态与宽气泡样式；同步 README/操作指引说明。 |
 | 2026-05-05 | README 增补「系统架构与智能体界定」：分层职责、工具调用式智能体说明、生成式边界与逻辑架构图。 |
 | 2026-04-24 | 删除已合并的 `library_rag_backend/` 快照目录，并移除 `rag-rasa` 远程；图谱与 RAG 能力以 `backend/kg_module` 为准。 |
