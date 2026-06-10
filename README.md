@@ -2,13 +2,49 @@
 
 基于 [Rasa](https://rasa.com/) 的中文**图书馆智能对话助手**（演示）：借还书、借阅指引、空间预约、推荐阅读、数据咨询话术、馆规 FAQ 等；**Neo4j** 中 `:LibraryBook`（`book_key` 唯一）同时承载**馆藏副本**（架位、在架标记）与 **CSV 导入的书目知识**（作者/类目/主题关系及 `rating`、`summary` 等），`:BorrowRecord` 记录借阅流水。
 
-## 快速开始（Windows）
+## 快速开始（Windows + Conda）
 
-1. 启动 Action：`backend\start_actions.ps1`
-2. 启动 Rasa：`backend\start_rasa.ps1 -RunOnly -Port 5005`
-3. 启动前端：在 `front\lib_agent_vue` 执行 `npm install` 后 `npm run dev`（默认 <http://localhost:8080>）
+### 前置条件
+- Python 3.10+（推荐 `conda create -n rasa310 python=3.10`）
+- 已安装 Rasa + rasa-sdk、`neo4j` 驱动、`markdown-it-py`、`DOMPurify` 等（见 `backend/requirements*.txt`）
+- Neo4j 实例（推荐 Aura；本地需配置 `.env` 中的 `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD`）
+- Node.js 18+（前端 Vite）
+- DeepSeek API Key（可选，用于推荐阅读 / data_inquiry 生成式增强）
 
-> 重要：修改 `backend/actions/actions.py` 后，需**重启 Action + Rasa**；仅重启 Rasa 不会加载新的 Action 代码。
+### 步骤
+1. **配置环境**  
+   复制 `.env.example` → `.env`，填入 `NEO4J_*`、`DEEPSEEK_API_KEY`（可选）、Rasa 端口等。
+
+2. **启动 Action Server**（含 Neo4j 知识网络构建）  
+   ```powershell
+   conda activate rasa310
+   cd backend
+   .\start_actions.ps1
+   ```
+   首次或清空后需执行：`python kg_module/import_data.py --reset`（自动构建作者关系 + 学科网络）。
+
+3. **启动 Rasa**  
+   ```powershell
+   cd backend
+   .\start_rasa.ps1 -RunOnly -Port 5005
+   ```
+   修改 NLU / rules / domain 后务必先 `rasa train`。
+
+4. **启动前端**  
+   ```powershell
+   cd front\lib_agent_vue
+   npm install
+   npm run dev   # 默认 http://localhost:8080
+   ```
+
+5. **验证**  
+   - 聊天页测试借还、推荐阅读（「推荐一些日本文学」应返回学科 + 作者关系 hint）。
+   - 切换左侧「🛠️ 调试工具」查看 Neo4j 知识网络可视化示例、会话状态与常用命令。
+
+> **重要提醒**
+> - 修改 `actions.py`、`neo4j_graph.py`、`graph_networks.py` 后必须**重启 Action + Rasa**。
+> - 修改 `rules.yml` / `nlu.yml` 后先 `rasa train` 再重启。
+> - 清空 Neo4j 后恢复演示数据：`python kg_module/import_data.py --reset`。
 
 ## 项目简介
 
@@ -92,6 +128,7 @@ library_agent/
 
 | 日期 | 摘要 |
 | ---- | ---- |
+| 2026-06-10 | **双知识网络**：新增作者关系网络（`author_relations.csv` + `INFLUENCED`/`CONTEMPORARY_WITH`/`RIVAL_OF`）与学科网络（`Discipline` + `IN_DISCIPLINE`/`WORKS_IN`/`UNDER_DISCIPLINE`）；`graph_networks.py` 实现 CSV 导入 + 派生边；`schema_cypher.py` 增加唯一约束、`prompt_templates.py` 更新 GraphRAG Schema、`neo4j_graph.py` 支持学科检索与 `related_authors`、`actions.py` 推荐阅读 hint 展示学科/关联作者。**前端重构**：左侧侧边栏导航（聊天 / 调试工具）；调试页**完全隔离**聊天（`v-if` 控制 `chat-list` 与 `composer`）；新增 Neo4j 知识网络可视化卡片（学科 pill、作者关系表、迷你图预览）、会话状态展示、常用命令提示；`sendQuickTest` 移除。**推荐阅读优化**：主题纠偏（「日本文学」）、图谱扩展去重与 DeepSeek 简介。**文档**：`kg_ontology_v2.md` v2.1 双网络完整说明、`操作指引.md` 更新导入与知识网络流程。 |
 | 2026-05-13 | **书籍总览**：`overview_catalog` 气泡 + Neo4j 分页（`get_library_collection_stats` / `list_on_shelf_overview_page`）；`book_overview_pager` 内部翻页；Vue **已访问页缓存**（返回上一页不请求、无加载层）、修正翻页后加载态残留；`nlu.yml` 与 `intent_retrieval_kb.json` 增补馆藏总览错别字与口语。**单书介绍**：新意图 `book_introduce`、`action_book_introduce`（馆藏 JSON + 图谱 + DeepSeek，`BOOK_INTRO_DEEPSEEK` / `.env.example`）。**借还体验**：表单不再忽略 `reading_recommend` 等以便打断；确认阶段 `deny` 规则与 `action_borrow_confirm_cancel` / `action_return_confirm_cancel` 清槽；`nlu.yml` 增补「否」等。**工程**：Neo4j 馆藏脚本与 Vite 前端迁移、根目录 `package.json` 等合并。**文档**：`操作指引` 增补总览气泡与单书介绍排障。 |
 | 2026-05-12 | **文档**：`docs/README.md` 为总索引；新增 `扩展路线与环境.md`、`CrossWOZ语料说明.md`；删 `README_v2.md`、`backend/docs/ontology_v2.md`；子项目 README 指向 `docs/`。**前端**：`lib_agent_vue` 迁 **Vite 5 + Vue 3.5**；机器人/书目表/推荐阅读等 **Markdown**（`markdown-it` + DOMPurify）；扩展推荐表去掉位置/状态列、图谱简介可走 DeepSeek（`READING_GRAPH_INTRO_DEEPSEEK`）；`jsconfig.json` 收敛 TS 服务对 `@types` 的误解析。**后端**：推荐阅读主导读强制 Markdown 排版；`_deepseek_multi_intent_system` 修复；`nlu.yml` 增加短主题例、将 `borrow_book` 中「人工智能相关书」改为「我要借…」减轻与 `reading_recommend` 冲突。 |
 | 2026-05-09 | 移除 SQLite：`library_db` 与 `sql/library_book_sqlite.sql` 删除；馆藏书目与流通迁入 Neo4j（`neo4j_library_store.py`，`:LibraryBook`、`:BorrowRecord`）；GraphRAG 提示扩展馆藏模型。 |

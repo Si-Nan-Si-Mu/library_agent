@@ -17,6 +17,7 @@ SCHEMA_QUERIES = [
     "CREATE CONSTRAINT author_name IF NOT EXISTS FOR (a:Author) REQUIRE a.name IS UNIQUE;",
     "CREATE CONSTRAINT category_name IF NOT EXISTS FOR (c:Category) REQUIRE c.name IS UNIQUE;",
     "CREATE CONSTRAINT topic_name IF NOT EXISTS FOR (t:Topic) REQUIRE t.name IS UNIQUE;",
+    "CREATE CONSTRAINT discipline_name IF NOT EXISTS FOR (d:Discipline) REQUIRE d.name IS UNIQUE;",
     "CREATE CONSTRAINT library_book_key IF NOT EXISTS FOR (lb:LibraryBook) REQUIRE lb.book_key IS UNIQUE;",
 ]
 

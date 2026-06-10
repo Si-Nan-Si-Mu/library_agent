@@ -30,6 +30,9 @@ MERGE (b)-[:WRITTEN_BY]->(a)
 MERGE (c:Category {name: $category})
 MERGE (b)-[:BELONGS_TO]->(c)
 
+MERGE (d:Discipline {name: $category})
+MERGE (b)-[:IN_DISCIPLINE]->(d)
+
 MERGE (t:Topic {name: $topic})
 MERGE (b)-[:COVERS_TOPIC]->(t)
 """
@@ -65,14 +68,14 @@ def _driver():
 
 def clear_all_neo4j_demo_data() -> int:
     """
-    删除演示/书目相关的全部 Neo4j 节点：:LibraryBook、:BorrowRecord、:Book（遗留）、:Author、:Category、:Topic。
+    删除演示/书目相关的全部 Neo4j 节点：:LibraryBook、:BorrowRecord、:Book（遗留）、:Author、:Category、:Topic、:Discipline。
     用于「清空后全量重导」；之后请运行 CSV 导入，并由本脚本在 --reset 流程末尾调用 ensure_bootstrap 重灌馆藏。
     返回 1 表示完成一轮清空。
     """
     driver = _driver()
     try:
         with driver.session() as session:
-            for label in ("LibraryBook", "BorrowRecord", "Book", "Author", "Category", "Topic"):
+            for label in ("LibraryBook", "BorrowRecord", "Book", "Author", "Category", "Topic", "Discipline"):
                 session.run(f"MATCH (n:{label}) DETACH DELETE n")
     finally:
         driver.close()
@@ -88,7 +91,7 @@ def clear_book_knowledge_graph() -> int:
             session.run(
                 """
                 MATCH (n)
-                WHERE n:Author OR n:Category OR n:Topic
+                WHERE n:Author OR n:Category OR n:Topic OR n:Discipline
                 DETACH DELETE n
                 """
             )
@@ -171,6 +174,18 @@ def import_csv_to_neo4j(csv_file_path: str) -> int:
     finally:
         driver.close()
     prune_orphan_library_books()
+    try:
+        from graph_networks import build_knowledge_networks
+
+        net_stats = build_knowledge_networks()
+        print(
+            "知识网络：作者关系 CSV {author_relations_csv} 条；"
+            "作者—学科 WORKS_IN {author_works_in}；"
+            "主题—学科 {topic_under_discipline}；"
+            "同学科 CONTEMPORARY_WITH {contemporary_by_discipline}。".format(**net_stats)
+        )
+    except Exception as exc:
+        print(f"知识网络构建跳过或失败: {exc}")
     print(f"\n导入完成！共成功处理 {success_count} 本书籍。")
     return success_count
 
@@ -191,12 +206,12 @@ if __name__ == "__main__":
     if "--reset" in sys.argv or "-r" in sys.argv:
         if graph_only:
             print(
-                "正在清空 Author / Category / Topic 与遗留 :Book（保留 LibraryBook、BorrowRecord）…"
+                "正在清空 Author / Category / Topic / Discipline 与遗留 :Book（保留 LibraryBook、BorrowRecord）…"
             )
             clear_book_knowledge_graph()
         else:
             print(
-                "正在清空 Neo4j 演示数据：LibraryBook、BorrowRecord、遗留 Book、Author、Category、Topic …"
+                "正在清空 Neo4j 演示数据：LibraryBook、BorrowRecord、遗留 Book、Author、Category、Topic、Discipline …"
             )
             clear_all_neo4j_demo_data()
         print("清空完成。")

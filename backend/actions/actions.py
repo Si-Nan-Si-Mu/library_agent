@@ -79,15 +79,44 @@ def _match_catalog_title(catalog_rows: List[dict], graph_title: str) -> Optional
     return None
 
 
+def _catalog_book_key_set(catalog_rows: List[dict]) -> set:
+    out: set = set()
+    for r in catalog_rows or []:
+        k = str(r.get("book_key") or "").strip().upper()
+        if k:
+            out.add(k)
+    return out
+
+
+def _graph_row_in_catalog(gr: dict, catalog_rows: List[dict], key_set: Optional[set] = None) -> bool:
+    """图谱节点是否已属于主题检索命中的馆藏行（避免与在架/已借表重复展示）。"""
+    ks = key_set if key_set is not None else _catalog_book_key_set(catalog_rows)
+    gk = str(gr.get("book_key") or "").strip().upper()
+    if gk and gk in ks:
+        return True
+    title = (gr.get("title") or "").strip()
+    if title and _match_catalog_title(catalog_rows, title):
+        return True
+    return False
+
+
 _READING_DEEPSEEK_SYSTEM = (
     "你是高校图书馆「阅读推广」助手，语气亲切、有分享感。"
     "下列【馆内检索事实】JSON 来自演示图数据库：索书号、是否在架以其中字段为准，不得虚构或改写。"
     "若另有【网络参考】，仅为开放网页摘要线索，须与馆内事实区分，勿把网络内容说成本馆已定藏。"
-    "请用中文输出 260～480 字：① 一两句点题；② 结合馆内事实与（若有）网络参考，各用 1～3 处线索展开，"
+    "请用中文输出 400～800 字：① 一两句点题；② 结合馆内事实与（若有）网络参考，各用 1～3 处线索展开，"
     "对重点书目各给一句适合转发的「内容简介式」短句或阅读感受；③ 结尾提醒读者「是否可借、索书号以聊天下方表格为准」。"
     "不要使用括号表情，不要复述整段 JSON。"
     "正文必须使用 Markdown 排版：至少包含 **加粗**（如书名）与 `##` 小标题或 `-` 无序列表之一，可以附带其他 Markdown 语法，如`[链接](https://example.com)`、色彩、彩字、斜体等。"
     "避免整段只有纯文字；可用 `## 导读`、`## 在架选读` 等分节。"
+)
+
+_READING_OFFCATALOG_SYSTEM = (
+    "你是高校图书馆阅读推广编辑。用户关心某一阅读主题，下列「本馆演示库已有书目」仅作去重参考，"
+    "你推荐的条目**不得**与其中任一书名相同或仅为同一书的不同副标题写法。\n"
+    "请只输出一个 JSON 数组（不要 Markdown、不要代码围栏外的说明）；数组每项形如 "
+    '{"title":"书名（中译名即可）","note":"100～200 字适读说明"} ，'
+    "推荐 4～8 本该主题下**常见经典或口碑作品**，可为馆内未收录的著作；勿写索书号、勿声称已在演示库上架。"
 )
 
 
@@ -99,6 +128,60 @@ def _entity_text(e: Dict[str, Any]) -> str:
     if isinstance(t, str) and t.strip():
         return t.strip()
     return ""
+
+
+def _longest_topic_author_entity(tracker: Tracker, text: str) -> str:
+    """从 NLU 实体中取 topic/author 的最长片段（优先 start/end，避免「日本文学」被标成短词「文学」）。"""
+    best = ""
+    best_len = 0
+    full = text or ""
+    for e in tracker.latest_message.get("entities") or []:
+        if not isinstance(e, dict):
+            continue
+        en = str(e.get("entity") or "")
+        if en not in ("topic", "author"):
+            continue
+        start, end = e.get("start"), e.get("end")
+        if isinstance(start, int) and isinstance(end, int) and 0 <= start < end <= len(full):
+            span = full[start:end].strip()
+        else:
+            span = _entity_text(e)
+        if len(span) > best_len:
+            best, best_len = span, len(span)
+    return best
+
+
+def _expand_topic_suffix(utterance: str, entity_topic: str) -> str:
+    """当实体仅为「文学」等后缀而整句含「日本文学」时，扩展为更长主题词。"""
+    et = (entity_topic or "").strip()
+    if len(et) < 2:
+        return et
+    u = (utterance or "").strip()
+    if not u or et not in u:
+        return et
+    pat = re.compile(rf"[\u4e00-\u9fa5]{{0,12}}{re.escape(et)}")
+    best = et
+    for m in pat.finditer(u):
+        w = m.group(0).strip()
+        if 2 <= len(w) <= 24 and len(w) > len(best):
+            best = w
+    return best
+
+
+def _prefer_richer_topic(a: str, b: str) -> str:
+    """在弱解析与实体解析之间取信息更完整的一个（更长或包含另一方）。"""
+    a, b = (a or "").strip(), (b or "").strip()
+    if not a:
+        return b
+    if not b:
+        return a
+    if a == b:
+        return a
+    if a in b and len(b) > len(a):
+        return b
+    if b in a and len(a) > len(b):
+        return a
+    return b if len(b) > len(a) else a
 
 
 def _weak_topic_from_utterance(text: str) -> str:
@@ -146,21 +229,22 @@ def _weak_topic_from_utterance(text: str) -> str:
 
 
 def _resolve_reading_topic(tracker: Tracker) -> str:
-    topic = (tracker.get_slot("topic") or "").strip()
-    if topic:
-        return topic
-    author = (tracker.get_slot("author") or "").strip()
-    if author:
-        return author
-    for e in tracker.latest_message.get("entities") or []:
-        if not isinstance(e, dict):
-            continue
-        en = str(e.get("entity") or "")
-        if en in ("topic", "author"):
-            t = _entity_text(e)
-            if t:
-                return t
-    return _weak_topic_from_utterance((tracker.latest_message.get("text") or "").strip())
+    """优先本轮用户话中的实体/弱解析，再回退槽位，减轻「日本文学」→「文学」与旧槽位串线。"""
+    text = (tracker.latest_message.get("text") or "").strip()
+    ent = _longest_topic_author_entity(tracker, text)
+    if ent:
+        ent = _expand_topic_suffix(text, ent)
+    weak = _weak_topic_from_utterance(text)
+    merged = _prefer_richer_topic(ent, weak)
+    if merged:
+        return merged[:80].strip()
+    author_slot = (tracker.get_slot("author") or "").strip()
+    topic_slot = (tracker.get_slot("topic") or "").strip()
+    if topic_slot:
+        return _expand_topic_suffix(text, topic_slot)[:80].strip()
+    if author_slot:
+        return author_slot[:80].strip()
+    return ""
 
 
 def _reading_facts_dict(catalog_rows: List[dict], graph_rows: List[dict]) -> Dict[str, Any]:
@@ -179,7 +263,13 @@ def _reading_facts_dict(catalog_rows: List[dict], graph_rows: List[dict]) -> Dic
             "call_number": (str(r.get("book_key") or "")).strip() or None,
             "rating": r.get("rating"),
             "authors": r.get("authors") if isinstance(r.get("authors"), list) else [],
-            "summary": (str(r.get("summary") or "").strip()[:200] or None),
+            "disciplines": r.get("disciplines")
+            if isinstance(r.get("disciplines"), list)
+            else [],
+            "related_authors": r.get("related_authors")
+            if isinstance(r.get("related_authors"), list)
+            else [],
+            "summary": (str(r.get("summary") or "")).strip()[:200] or None,
         }
 
     on_shelf = [cr(r) for r in catalog_rows if int(r.get("is_borrow") or 0) == 0][:14]
@@ -276,14 +366,64 @@ def _deepseek_graph_row_intros(topic: str, graph_rows: List[dict]) -> Dict[str, 
     return out
 
 
+def _deepseek_off_catalog_rows(topic: str, catalog_rows: List[dict], web_ctx: str) -> List[Dict[str, str]]:
+    """模型补充：主题相关但不在演示馆藏表中的延伸书目（仅 JSON 解析结果，无 API 时返回 []）。"""
+    if not (os.environ.get("DEEPSEEK_API_KEY") or "").strip():
+        return []
+    flag = (os.environ.get("READING_OFFCATALOG_DEEPSEEK") or "1").strip().lower()
+    if flag in ("0", "false", "off", "no"):
+        return []
+    lib_titles = sorted(
+        {str(r.get("lib_book") or "").strip() for r in (catalog_rows or []) if str(r.get("lib_book") or "").strip()}
+    )
+    user_blob = (
+        f"阅读主题：{topic}\n\n"
+        "【本馆演示库已有书目（勿重复推荐）】\n"
+        f"{json.dumps(lib_titles[:50], ensure_ascii=False)}\n"
+    )
+    wc = (web_ctx or "").strip()
+    if wc:
+        user_blob += f"\n【网络参考（可借鉴题材与读法，勿当成本馆目录）】\n{wc[:2200]}\n"
+    user_blob += "\n请严格只输出 JSON 数组，元素字段 title、note。"
+    raw, err = deepseek_chat(
+        user_blob,
+        system=_READING_OFFCATALOG_SYSTEM,
+        timeout=48.0,
+        temperature=0.42,
+    )
+    if not raw or err:
+        if err and err != "missing_api_key":
+            logging.getLogger(__name__).info("reading off-catalog DeepSeek: %s", err)
+        return []
+    arr = _extract_first_json_array(raw)
+    if not isinstance(arr, list):
+        return []
+    out: List[Dict[str, str]] = []
+    for el in arr:
+        if not isinstance(el, dict):
+            continue
+        title = str(el.get("title") or "").strip()
+        note = str(el.get("note") or "").strip()
+        if not title or not note:
+            continue
+        if _match_catalog_title(catalog_rows, title):
+            continue
+        out.append({"book_title": title, "note": (note[:220] + "…") if len(note) > 220 else note})
+        if len(out) >= 8:
+            break
+    return out
+
+
 def _reading_recommend_custom_message(
     topic: str,
     catalog_rows: List[dict],
-    graph_rows: List[dict],
+    graph_extension_rows: List[dict],
     graph_ai_summaries: Optional[Dict[str, str]] = None,
+    off_catalog_rows: Optional[List[Dict[str, str]]] = None,
 ) -> Dict[str, Any]:
-    """供前端表格渲染的结构化载荷（事实以 Neo4j `:LibraryBook` 为准；图谱推荐与馆藏为同一节点）。"""
+    """结构化载荷：馆藏只在「本馆」表；图谱补充表不含已命中馆藏；馆外延伸来自模型 JSON。"""
     graph_ai_summaries = graph_ai_summaries or {}
+    off_catalog_rows = off_catalog_rows or []
     on_shelf = [r for r in catalog_rows if int(r.get("is_borrow") or 0) == 0]
     borrowed = [r for r in catalog_rows if int(r.get("is_borrow") or 0) == 1]
 
@@ -298,7 +438,7 @@ def _reading_recommend_custom_message(
         }
 
     graph_out: List[Dict[str, Any]] = []
-    for gr in graph_rows:
+    for gr in graph_extension_rows:
         title = (gr.get("title") or "").strip()
         if not title:
             continue
@@ -309,6 +449,8 @@ def _reading_recommend_custom_message(
         authors = gr.get("authors") or []
         author_bios = gr.get("author_bios") or []
         categories = gr.get("categories") or []
+        disciplines = gr.get("disciplines") or []
+        related_authors = gr.get("related_authors") or []
         topics = gr.get("topics") or []
         if not isinstance(authors, list):
             authors = []
@@ -316,6 +458,10 @@ def _reading_recommend_custom_message(
             author_bios = []
         if not isinstance(categories, list):
             categories = []
+        if not isinstance(disciplines, list):
+            disciplines = []
+        if not isinstance(related_authors, list):
+            related_authors = []
         if not isinstance(topics, list):
             topics = []
         hint_parts: List[str] = []
@@ -328,8 +474,14 @@ def _reading_recommend_custom_message(
                     f"{name}简介：" + (bio_s[:120] + "…" if len(bio_s) > 120 else bio_s)
                 )
                 break
-        if categories:
+        if disciplines:
+            hint_parts.append("学科：" + "、".join(str(d) for d in disciplines if str(d).strip()))
+        elif categories:
             hint_parts.append("类目：" + "、".join(str(c) for c in categories if str(c).strip()))
+        if related_authors:
+            hint_parts.append(
+                "关联作者：" + "、".join(str(a) for a in related_authors if str(a).strip())[:80]
+            )
         if topics:
             hint_parts.append("主题：" + "、".join(str(t) for t in topics if str(t).strip()))
         if rating is not None:
@@ -354,13 +506,17 @@ def _reading_recommend_custom_message(
         "payload_type": "reading_recommend",
         "topic": topic,
         "intro": (
-            f"主题「{topic}」｜下方表格为演示库在架 / 已借出与图谱扩展；"
-            "在架图书可说「借书」后输入书名办理借阅。"
+            f"主题「{topic}」｜下方首表为演示库**本馆馆藏**（在架与已借出）；"
+            "次表为图谱补充（未出现在主题检索表中的本馆关联书）；末表为**非演示馆藏**的延伸阅读。"
         ),
         "on_shelf_rows": [cat_row(r) for r in on_shelf[:40]],
         "borrowed_rows": [cat_row(r) for r in borrowed[:40]],
         "graph_rows": graph_out[:12],
-        "footnote": "在架状态以「本馆馆藏」表为准；扩展推荐简介由模型生成，说明列仍为图谱事实摘要；选书与索书号以表格为准。",
+        "off_catalog_rows": off_catalog_rows[:12],
+        "footnote": (
+            "在架与索书号以「本馆馆藏」表为准；图谱补充仍为本馆节点时以 Neo4j 为准；"
+            "「非本馆演示藏书」由模型生成，**未承诺已采购或已编目**，仅供阅读拓展。"
+        ),
     }
 
 
@@ -1203,9 +1359,10 @@ class ActionReadingRecommend(Action):
                 SlotSet("last_recommended_candidates", None),
             ]
 
+        web_ctx = build_reading_web_context(topic)
+
         ds_flag = (os.environ.get("READING_RECOMMEND_DEEPSEEK") or "1").strip().lower()
         if ds_flag not in ("0", "false", "off", "no"):
-            web_ctx = build_reading_web_context(topic)
             facts = _reading_facts_dict(catalog_rows, graph_rows)
             user_blob = (
                 f"用户输入原句：{(tracker.latest_message.get('text') or '').strip()}\n"
@@ -1225,11 +1382,22 @@ class ActionReadingRecommend(Action):
             elif ds_err and ds_err != "missing_api_key":
                 logging.getLogger(__name__).info("reading_recommend DeepSeek 跳过: %s", ds_err)
 
-        graph_ai_summaries = _deepseek_graph_row_intros(topic, graph_rows)
+        cat_keys = _catalog_book_key_set(catalog_rows)
+        graph_ext = [gr for gr in graph_rows if not _graph_row_in_catalog(gr, catalog_rows, cat_keys)]
+        graph_ai_summaries = _deepseek_graph_row_intros(topic, graph_ext)
+
+        off_catalog_rows: List[Dict[str, str]] = []
+        off_flag = (os.environ.get("READING_OFFCATALOG_DEEPSEEK") or "1").strip().lower()
+        if off_flag not in ("0", "false", "off", "no"):
+            off_catalog_rows = _deepseek_off_catalog_rows(topic, catalog_rows, web_ctx)
 
         dispatcher.utter_message(
             json_message=_reading_recommend_custom_message(
-                topic, catalog_rows, graph_rows, graph_ai_summaries=graph_ai_summaries
+                topic,
+                catalog_rows,
+                graph_ext,
+                graph_ai_summaries=graph_ai_summaries,
+                off_catalog_rows=off_catalog_rows,
             )
         )
 
@@ -1244,8 +1412,12 @@ class ActionReadingRecommend(Action):
             t = str(r.get("lib_book") or "").strip()
             if t and t not in ordered_titles:
                 ordered_titles.append(t)
-        for gr in graph_rows:
+        for gr in graph_ext:
             t = str(gr.get("title") or "").strip()
+            if t and t not in ordered_titles:
+                ordered_titles.append(t)
+        for oc in off_catalog_rows:
+            t = str(oc.get("book_title") or "").strip()
             if t and t not in ordered_titles:
                 ordered_titles.append(t)
 
@@ -1269,14 +1441,31 @@ class ActionReadingRecommend(Action):
                     json.dumps(ordered_titles[:20], ensure_ascii=False),
                 ),
             ]
-        top = graph_rows[0]
+        if graph_ext:
+            top = graph_ext[0]
+            tk = str(top.get("book_key") or "").strip()
+            return [
+                SlotSet("last_recommended_title", (top.get("title") or "").strip() or None),
+                SlotSet("last_recommended_call_number", tk or None),
+                SlotSet(
+                    "last_recommended_candidates",
+                    json.dumps(ordered_titles[:20], ensure_ascii=False),
+                ),
+            ]
+        if off_catalog_rows:
+            pick = off_catalog_rows[0]
+            return [
+                SlotSet("last_recommended_title", (pick.get("book_title") or "").strip() or None),
+                SlotSet("last_recommended_call_number", None),
+                SlotSet(
+                    "last_recommended_candidates",
+                    json.dumps(ordered_titles[:20], ensure_ascii=False),
+                ),
+            ]
         return [
-            SlotSet("last_recommended_title", (top.get("title") or "").strip() or None),
+            SlotSet("last_recommended_title", None),
             SlotSet("last_recommended_call_number", None),
-            SlotSet(
-                "last_recommended_candidates",
-                json.dumps(ordered_titles[:20], ensure_ascii=False),
-            ),
+            SlotSet("last_recommended_candidates", None),
         ]
 
 

@@ -85,6 +85,76 @@ rules:
       - action: return_book_form
       - active_loop: return_book_form
 
+  # 书名短句常被标成 book_introduce：若不拦截会中断表单并命中「单书介绍」规则，批量还书时 return_profile 无法被提交。
+  - rule: 借书表单内 book_introduce 继续追问
+    condition:
+      - active_loop: borrow_book_form
+    steps:
+      - intent: book_introduce
+      - action: borrow_book_form
+      - active_loop: borrow_book_form
+
+  - rule: 还书表单内 book_introduce 继续追问
+    condition:
+      - active_loop: return_book_form
+    steps:
+      - intent: book_introduce
+      - action: return_book_form
+      - active_loop: return_book_form
+
+  - rule: 借书择号表单内 book_introduce 继续追问
+    condition:
+      - active_loop: borrow_call_form
+    steps:
+      - intent: book_introduce
+      - action: borrow_call_form
+      - active_loop: borrow_call_form
+
+  - rule: 还书择号表单内 book_introduce 继续追问
+    condition:
+      - active_loop: return_call_form
+    steps:
+      - intent: book_introduce
+      - action: return_call_form
+      - active_loop: return_call_form
+
+  # 用户按 utter_default 提示说「推荐阅读」等时，若仍在借/还书填表流程，原「推荐阅读」规则因 active_loop 非 null 不命中；先退出表单再进入推荐。
+  - rule: 借书表单中推荐阅读
+    condition:
+      - active_loop: borrow_book_form
+    steps:
+      - intent: reading_recommend
+      - action: action_deactivate_loop
+      - active_loop: null
+      - action: action_reading_recommend
+
+  - rule: 还书表单中推荐阅读
+    condition:
+      - active_loop: return_book_form
+    steps:
+      - intent: reading_recommend
+      - action: action_deactivate_loop
+      - active_loop: null
+      - action: action_reading_recommend
+
+  - rule: 借书择号表单中推荐阅读
+    condition:
+      - active_loop: borrow_call_form
+    steps:
+      - intent: reading_recommend
+      - action: action_deactivate_loop
+      - active_loop: null
+      - action: action_reading_recommend
+
+  - rule: 还书择号表单中推荐阅读
+    condition:
+      - active_loop: return_call_form
+    steps:
+      - intent: reading_recommend
+      - action: action_deactivate_loop
+      - active_loop: null
+      - action: action_reading_recommend
+
   # 借/还确认阶段短句「否」易被标成 nlu_fallback；用规则绑定 deny，避免只剩 Memoization 时漏匹配。
   - rule: 借书单条确认后否定
     condition:
@@ -93,6 +163,17 @@ rules:
           - borrow_phase: single_confirm
     steps:
       - intent: deny
+      - action: action_borrow_confirm_cancel
+
+  - rule: 借书单条确认后 nlu_fallback 放弃
+    condition:
+      - active_loop: null
+      - slot_was_set:
+          - borrow_phase: single_confirm
+      - slot_was_set:
+          - defer_nlu_fallback: false
+    steps:
+      - intent: nlu_fallback
       - action: action_borrow_confirm_cancel
 
   - rule: 借书多本择号确认后否定
@@ -113,6 +194,17 @@ rules:
           - return_phase: single_confirm
     steps:
       - intent: deny
+      - action: action_return_confirm_cancel
+
+  - rule: 还书单条确认后 nlu_fallback 放弃
+    condition:
+      - active_loop: null
+      - slot_was_set:
+          - return_phase: single_confirm
+      - slot_was_set:
+          - defer_nlu_fallback: false
+    steps:
+      - intent: nlu_fallback
       - action: action_return_confirm_cancel
 
   - rule: 还书多本择号确认后否定

@@ -1,77 +1,187 @@
 <template>
   <div class="page" :class="`density-${densityMode}`">
-    <main class="card">
-      <header class="header">
-        <div>
-          <h1>图书馆智能助手</h1>
-          <p>Vue 与 Rasa REST Webhook 联调</p>
+    <!-- 左侧侧边栏 -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h2>图书馆智能助手</h2>
+        <p class="sidebar-subtitle">联调与调试</p>
+      </div>
+      <nav class="sidebar-nav">
+        <button
+          type="button"
+          class="nav-item"
+          :class="{ active: activeTab === 'chat' }"
+          @click="activeTab = 'chat'"
+        >
+          💬 聊天对话
+        </button>
+        <button
+          type="button"
+          class="nav-item"
+          :class="{ active: activeTab === 'debug' }"
+          @click="activeTab = 'debug'"
+        >
+          🛠️ 调试工具
+        </button>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="endpoint-mini">
+          <input v-model.trim="endpoint" type="text" placeholder="Rasa 地址" />
+          <button type="button" @click="saveEndpoint">保存</button>
         </div>
-        <div class="header-controls">
-          <div class="endpoint-box">
-            <input
-              v-model.trim="endpoint"
-              type="text"
-              placeholder="Rasa webhook 地址"
-            />
-            <button type="button" @click="saveEndpoint">保存</button>
-          </div>
-          <label class="debug-toggle">
-            <input v-model="debugLog" type="checkbox" @change="persistDebugLog" />
-            <span>控制台调试（F12 → Console，前缀 [Rasa]）</span>
-          </label>
-          <label class="debug-toggle">
-            <input
-              v-model="showJsonPanel"
-              type="checkbox"
-              @change="persistShowJsonPanel"
-            />
-            <span>页面内显示请求/响应 JSON</span>
-          </label>
-          <label class="debug-toggle density-select">
-            <span>显示密度</span>
-            <select v-model="densityMode" @change="persistDensityMode">
-              <option value="standard">标准</option>
-              <option value="large">大字</option>
-            </select>
-          </label>
-          <div class="json-actions">
-            <button
-              type="button"
-              class="btn-json"
-              title="导出：每轮 Rasa REST 请求/原始响应/解析结果 + 对话区全部气泡（含书目表、推荐阅读载荷等）"
-              @click="downloadInteractionData"
-            >
-              下载交互数据
-            </button>
-            <span v-if="canDownloadInteractionData" class="json-hint"
-              >HTTP 往返 {{ exchanges.length }} 轮 · 对话气泡 {{ chatBubbleCount }} 条</span
-            >
-          </div>
+        <div class="version">v1.4 · Rasa + Neo4j</div>
+      </div>
+    </aside>
+
+    <main class="card">
+      <!-- 聊天页头部（精简） -->
+      <header v-if="activeTab === 'chat'" class="header">
+        <div>
+          <h1>聊天对话</h1>
+          <p>与图书馆智能助手实时交互</p>
         </div>
       </header>
 
-      <section
-        v-show="showJsonPanel && exchanges.length"
-        class="json-debug-strip"
-        aria-label="Rasa 请求响应 JSON"
-      >
-        <p class="json-debug-title">各轮 HTTP 与 Rasa 返回 JSON（可展开；完整数据请用「下载交互数据」）</p>
-        <div
-          v-for="(ex, idx) in exchanges"
-          :key="ex.id"
-          class="json-debug-turn"
-        >
-          <details>
-            <summary>
-              第 {{ idx + 1 }} 轮
-              <span class="json-debug-user-preview">{{ ex.userText }}</span>
-            </summary>
-            <pre class="json-pre">{{ formatExchangeJson(ex) }}</pre>
-          </details>
+      <!-- 调试页头部 -->
+      <header v-if="activeTab === 'debug'" class="header debug-header">
+        <div>
+          <h1>调试工具</h1>
+          <p>集中管理调试开关、数据导出与快捷测试</p>
         </div>
+      </header>
+
+      <!-- 调试面板（完全独立于聊天，仅 debug tab 显示） -->
+      <section v-if="activeTab === 'debug'" class="debug-panel">
+        <div class="debug-grid">
+          <!-- 调试开关 -->
+          <div class="debug-card">
+            <h3>调试开关</h3>
+            <label class="debug-toggle">
+              <input v-model="debugLog" type="checkbox" @change="persistDebugLog" />
+              <span>控制台调试（F12 → Console，前缀 [Rasa]）</span>
+            </label>
+            <label class="debug-toggle">
+              <input
+                v-model="showJsonPanel"
+                type="checkbox"
+                @change="persistShowJsonPanel"
+              />
+              <span>页面内显示请求/响应 JSON</span>
+            </label>
+            <label class="debug-toggle density-select">
+              <span>显示密度</span>
+              <select v-model="densityMode" @change="persistDensityMode">
+                <option value="standard">标准</option>
+                <option value="large">大字</option>
+              </select>
+            </label>
+          </div>
+
+          <!-- 数据导出与会话 -->
+          <div class="debug-card">
+            <h3>数据导出与会话状态</h3>
+            <div class="json-actions">
+              <button
+                type="button"
+                class="btn-json primary"
+                @click="downloadInteractionData"
+              >
+                下载交互数据
+              </button>
+              <button type="button" class="btn-json" @click="clearAllLocalData">
+                清空本地数据
+              </button>
+            </div>
+            <div class="session-info">
+              <div>当前 SenderId: <code>{{ senderId || '未生成' }}</code></div>
+              <div>对话气泡: {{ chatBubbleCount }} 条</div>
+              <div>HTTP 往返: {{ exchanges.length }} 轮</div>
+            </div>
+          </div>
+
+          <!-- Neo4j 知识网络可视化（部分） -->
+          <div class="debug-card graph-viz-card">
+            <h3>Neo4j 知识网络可视化（示例）</h3>
+            <p class="debug-note">展示双知识网络结构（作者关系 + 学科网络），实际数据来自 Neo4j。</p>
+
+            <!-- 学科网络 -->
+            <div class="graph-section">
+              <h4>学科节点 (Discipline)</h4>
+              <div class="discipline-pills">
+                <span v-for="d in sampleDisciplines" :key="d.name" class="pill discipline">
+                  {{ d.name }} <small>({{ d.bookCount }})</small>
+                </span>
+              </div>
+            </div>
+
+            <!-- 作者关系网络 -->
+            <div class="graph-section">
+              <h4>作者关系网络示例</h4>
+              <table class="graph-table">
+                <thead>
+                  <tr><th>源作者</th><th>关系</th><th>目标作者</th><th>说明</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(rel, i) in sampleAuthorRelations" :key="i">
+                    <td>{{ rel.source }}</td>
+                    <td><span class="rel-badge">{{ rel.type }}</span></td>
+                    <td>{{ rel.target }}</td>
+                    <td class="note">{{ rel.note }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- 简单关系图预览 -->
+            <div class="graph-section">
+              <h4>关系图预览（同学科 CONTEMPORARY_WITH + INFLUENCED）</h4>
+              <div class="mini-graph">
+                <div class="node author" v-for="a in sampleAuthors" :key="a">{{ a }}</div>
+                <div class="edge-label">INFLUENCED / CONTEMPORARY_WITH</div>
+              </div>
+              <p class="debug-note">派生边：WORKS_IN（作者→学科）、UNDER_DISCIPLINE（主题→学科）</p>
+            </div>
+          </div>
+
+          <!-- 后端与 Neo4j 命令 -->
+          <div class="debug-card">
+            <h3>后端与 Neo4j 常用命令</h3>
+            <ul class="debug-list">
+              <li>全量重置（含知识网络）：<code>python kg_module/import_data.py --reset</code></li>
+              <li>重建作者/学科网络：<code>python kg_module/graph_networks.py</code></li>
+              <li>仅清空元数据：<code>python kg_module/import_data.py --reset --graph-only</code></li>
+              <li>Rasa 重训：<code>rasa train</code> 后重启 Action Server</li>
+              <li>推荐阅读 DeepSeek 开关：<code>READING_OFFCATALOG_DEEPSEEK=1</code></li>
+            </ul>
+            <p class="debug-note">操作后需重启对应服务（Rasa / Action）。</p>
+          </div>
+        </div>
+
+        <!-- JSON 调试条（仅 debug 页显示） -->
+        <section
+          v-show="showJsonPanel && exchanges.length"
+          class="json-debug-strip"
+          aria-label="Rasa 请求响应 JSON"
+        >
+          <p class="json-debug-title">各轮 HTTP 与 Rasa 返回 JSON（可展开；完整数据请用「下载交互数据」）</p>
+          <div
+            v-for="(ex, idx) in exchanges"
+            :key="ex.id"
+            class="json-debug-turn"
+          >
+            <details>
+              <summary>
+                第 {{ idx + 1 }} 轮
+                <span class="json-debug-user-preview">{{ ex.userText }}</span>
+              </summary>
+              <pre class="json-pre">{{ formatExchangeJson(ex) }}</pre>
+            </details>
+          </div>
+        </section>
       </section>
 
-      <section ref="chatRef" class="chat-list">
+      <!-- 聊天界面：仅在 chat tab 显示，与调试页完全隔离 -->
+      <section v-if="activeTab === 'chat'" ref="chatRef" class="chat-list">
         <div v-for="item in messages" :key="item.id" class="row" :class="item.role">
           <div
             class="bubble"
@@ -85,7 +195,7 @@
                 item.kind === 'borrow_form',
             }"
           >
-            <template v-if="item.kind === 'catalog'">
+            <template v-if="item.kind === 'catalog' || item.kind === 'return_catalog'">
               <div class="catalog-panel">
                 <!-- eslint-disable-next-line vue/no-v-html -->
                 <div
@@ -94,14 +204,30 @@
                   v-html="markdownToSafeHtml(item.introText)"
                 />
                 <div class="catalog-header">
-                  <strong>借书书目表（可查询/翻页）</strong>
+                  <strong>{{ catalogIsReturn(item) ? "待还书目 · 办理归还（可查询/翻页）" : "借书书目表（可查询/翻页）" }}</strong>
                   <span>共 {{ catalogFiltered(item).length }} / {{ item.rows.length }} 本</span>
                 </div>
-                <div v-if="item.borrowPolicy" class="catalog-policy" :class="{ danger: !item.borrowPolicy.can_borrow }">
+                <div
+                  v-if="!catalogIsReturn(item) && item.borrowPolicy"
+                  class="catalog-policy"
+                  :class="{ danger: !item.borrowPolicy.can_borrow }"
+                >
                   {{ item.borrowPolicy.message }}
                 </div>
                 <div
-                  v-if="item.borrowPolicy && Array.isArray(item.borrowPolicy.active_books) && item.borrowPolicy.active_books.length"
+                  v-if="catalogIsReturn(item)"
+                  class="catalog-policy"
+                  :class="{ danger: !returnPolicyDisplay(item).can_return }"
+                >
+                  {{ returnPolicyDisplay(item).message }}
+                </div>
+                <div
+                  v-if="
+                    !catalogIsReturn(item) &&
+                    item.borrowPolicy &&
+                    Array.isArray(item.borrowPolicy.active_books) &&
+                    item.borrowPolicy.active_books.length
+                  "
                   class="catalog-active-books"
                 >
                   <div class="catalog-active-title">当前已借未还：</div>
@@ -129,7 +255,7 @@
                     </select>
                   </label>
                 </div>
-                <table class="catalog-table">
+                <table v-if="!catalogIsReturn(item)" class="catalog-table">
                   <thead>
                     <tr>
                       <th>书名</th>
@@ -170,93 +296,7 @@
                     </tr>
                   </tbody>
                 </table>
-                <div class="catalog-pager">
-                  <button
-                    type="button"
-                    :disabled="item.catalogPage <= 1"
-                    @click="item.catalogPage--"
-                  >
-                    上一页
-                  </button>
-                  <span>第 {{ item.catalogPage }} / {{ catalogTotalPages(item) }} 页</span>
-                  <button
-                    type="button"
-                    :disabled="item.catalogPage >= catalogTotalPages(item)"
-                    @click="item.catalogPage++"
-                  >
-                    下一页
-                  </button>
-                </div>
-                <div class="catalog-queue">
-                  <div class="catalog-active-title">
-                    借书单（{{ borrowQueue.length }}/{{ queueLimit(item) }}）
-                  </div>
-                  <div v-if="borrowQueue.length">
-                    <div
-                      v-for="(b, idx) in borrowQueue"
-                      :key="`queue-${b.call_number}-${idx}`"
-                      class="catalog-active-item queue-item"
-                    >
-                      <span>{{ idx + 1 }}. 《{{ b.book_title }}》 {{ b.call_number }}</span>
-                      <button
-                        type="button"
-                        class="btn-remove"
-                        @click="removeBorrowQueueBook(b.call_number)"
-                      >
-                        移除
-                      </button>
-                    </div>
-                    <div class="queue-actions">
-                      <button
-                        type="button"
-                        class="btn-undo"
-                        :disabled="!lastRemovedQueueItem"
-                        @click="undoRemoveBorrowQueueBook"
-                      >
-                        撤销移除
-                      </button>
-                      <button type="button" class="btn-cancel" @click="clearBorrowQueue">清空借书单</button>
-                      <button type="button" class="btn-pick" @click="openBorrowQueueForm">
-                        填写借阅信息并提交
-                      </button>
-                    </div>
-                  </div>
-                  <div v-else class="catalog-active-item">尚未选择图书</div>
-                </div>
-              </div>
-            </template>
-            <template v-else-if="item.kind === 'return_catalog'">
-              <div class="catalog-panel">
-                <!-- eslint-disable-next-line vue/no-v-html -->
-                <div
-                  v-if="item.introText"
-                  class="catalog-intro markdown-body"
-                  v-html="markdownToSafeHtml(item.introText)"
-                />
-                <div class="catalog-header">
-                  <strong>还书书目表（可查询/翻页）</strong>
-                  <span>共 {{ catalogFiltered(item).length }} / {{ item.rows.length }} 本</span>
-                </div>
-                <div v-if="item.returnPolicy" class="catalog-policy" :class="{ danger: !item.returnPolicy.can_return }">
-                  {{ item.returnPolicy.message }}
-                </div>
-                <div class="catalog-tools">
-                  <input
-                    v-model.trim="item.catalogQuery"
-                    type="text"
-                    placeholder="按书名/索书号查询"
-                    @input="item.catalogPage = 1"
-                  />
-                  <label>
-                    每页
-                    <select v-model.number="item.catalogPageSize" @change="item.catalogPage = 1">
-                      <option :value="5">5</option>
-                      <option :value="10">10</option>
-                      <option :value="20">20</option>
-                    </select>
-                  </label>
-                </div>
-                <table class="catalog-table">
+                <table v-else class="catalog-table">
                   <thead>
                     <tr>
                       <th>书名</th>
@@ -283,8 +323,8 @@
                         <button
                           type="button"
                           class="btn-pick"
-                          :disabled="!canAddToReturnQueue(row)"
-                          @click="pickReturnCatalogBook(row)"
+                          :disabled="!canAddToReturnQueue(row, item)"
+                          @click="pickReturnCatalogBook(row, item)"
                         >
                           选择归还
                         </button>
@@ -314,9 +354,44 @@
                 </div>
                 <div class="catalog-queue">
                   <div class="catalog-active-title">
-                    还书单（{{ returnQueue.length }} 本）
+                    <template v-if="!catalogIsReturn(item)">
+                      借书单（{{ borrowQueue.length }}/{{ queueLimit(item) }}）
+                    </template>
+                    <template v-else>
+                      还书单（{{ returnQueue.length }}/{{ returnQueueLimitForItem(item) }}）
+                    </template>
                   </div>
-                  <div v-if="returnQueue.length">
+                  <div v-if="!catalogIsReturn(item) && borrowQueue.length">
+                    <div
+                      v-for="(b, idx) in borrowQueue"
+                      :key="`queue-${b.call_number}-${idx}`"
+                      class="catalog-active-item queue-item"
+                    >
+                      <span>{{ idx + 1 }}. 《{{ b.book_title }}》 {{ b.call_number }}</span>
+                      <button
+                        type="button"
+                        class="btn-remove"
+                        @click="removeBorrowQueueBook(b.call_number)"
+                      >
+                        移除
+                      </button>
+                    </div>
+                    <div class="queue-actions">
+                      <button
+                        type="button"
+                        class="btn-undo"
+                        :disabled="!lastRemovedQueueItem"
+                        @click="undoRemoveBorrowQueueBook"
+                      >
+                        撤销移除
+                      </button>
+                      <button type="button" class="btn-cancel" @click="clearBorrowQueue">清空借书单</button>
+                      <button type="button" class="btn-pick" @click="openBorrowQueueForm">
+                        填写借阅信息并提交
+                      </button>
+                    </div>
+                  </div>
+                  <div v-else-if="catalogIsReturn(item) && returnQueue.length">
                     <div
                       v-for="(b, idx) in returnQueue"
                       :key="`return-queue-${b.call_number}-${idx}`"
@@ -431,82 +506,96 @@
                 <div class="rr-intro markdown-body" v-html="markdownToSafeHtml(item.readingPayload.intro)" />
                 <div class="rr-topic-pill">检索主题：{{ item.readingPayload.topic }}</div>
 
-                <div class="rr-sep" role="separator" aria-hidden="true">━━━━━</div>
-                <h4 class="rr-section-title">本馆馆藏 · 在架可借</h4>
-                <table class="rr-table">
-                  <thead>
-                    <tr>
-                      <th>书名</th>
-                      <th>简介</th>
-                      <th>索书号</th>
-                      <th>馆藏位置</th>
-                      <th>状态</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="(row, idx) in item.readingPayload.on_shelf_rows" :key="`rr-os-${row.call_number}-${idx}`">
-                      <td>《{{ row.book_title }}》</td>
-                      <td class="rr-summary">{{ row.book_summary || "—" }}</td>
-                      <td>{{ row.call_number }}</td>
-                      <td>{{ row.book_pos }}</td>
-                      <td><span class="rr-badge rr-badge-ok">{{ row.status }}</span></td>
-                    </tr>
-                    <tr v-if="!item.readingPayload.on_shelf_rows.length">
-                      <td colspan="5" class="rr-empty">暂无在架记录</td>
-                    </tr>
-                  </tbody>
-                </table>
+                <section class="rr-block">
+                  <h4 class="rr-section-title">本馆馆藏（演示库）</h4>
+                  <p class="rr-block-hint">在架与已借出合并展示；索书号、位置与借阅状态以本表为准。</p>
+                  <div class="rr-table-wrap">
+                    <table class="rr-table">
+                      <thead>
+                        <tr>
+                          <th>书名</th>
+                          <th>简介</th>
+                          <th>索书号</th>
+                          <th>馆藏位置</th>
+                          <th>状态</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr
+                          v-for="(row, idx) in readingLibraryRows(item.readingPayload)"
+                          :key="`rr-lib-${row.call_number}-${idx}`"
+                        >
+                          <td>《{{ row.book_title }}》</td>
+                          <td class="rr-summary">{{ row.book_summary || "—" }}</td>
+                          <td>{{ row.call_number }}</td>
+                          <td>{{ row.book_pos }}</td>
+                          <td>
+                            <span
+                              class="rr-badge"
+                              :class="row.status === '在架可借' ? 'rr-badge-ok' : 'rr-badge-out'"
+                            >{{ row.status }}</span>
+                          </td>
+                        </tr>
+                        <tr v-if="!readingLibraryRows(item.readingPayload).length">
+                          <td colspan="5" class="rr-empty">暂无馆藏命中记录</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
 
-                <div class="rr-sep" role="separator" aria-hidden="true">━━━━━</div>
-                <h4 class="rr-section-title">本馆馆藏 · 已借出</h4>
-                <table class="rr-table">
-                  <thead>
-                    <tr>
-                      <th>书名</th>
-                      <th>简介</th>
-                      <th>索书号</th>
-                      <th>馆藏位置</th>
-                      <th>状态</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="(row, idx) in item.readingPayload.borrowed_rows" :key="`rr-bw-${row.call_number}-${idx}`">
-                      <td>《{{ row.book_title }}》</td>
-                      <td class="rr-summary">{{ row.book_summary || "—" }}</td>
-                      <td>{{ row.call_number }}</td>
-                      <td>{{ row.book_pos }}</td>
-                      <td><span class="rr-badge rr-badge-out">{{ row.status }}</span></td>
-                    </tr>
-                    <tr v-if="!item.readingPayload.borrowed_rows.length">
-                      <td colspan="5" class="rr-empty">暂无已借出记录</td>
-                    </tr>
-                  </tbody>
-                </table>
+                <section v-if="readingGraphRows(item.readingPayload).length" class="rr-block rr-block-muted">
+                  <h4 class="rr-section-title">图谱补充（本馆节点，主题检索未列出）</h4>
+                  <p class="rr-block-hint">来自知识图谱扩展，与上表不重复。</p>
+                  <div class="rr-table-wrap">
+                    <table class="rr-table rr-table-graph">
+                      <thead>
+                        <tr>
+                          <th>题名</th>
+                          <th>简介</th>
+                          <th>索书号</th>
+                          <th>说明</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr
+                          v-for="(row, idx) in readingGraphRows(item.readingPayload)"
+                          :key="`rr-gr-${row.call_number}-${idx}`"
+                        >
+                          <td>《{{ row.book_title }}》</td>
+                          <!-- eslint-disable-next-line vue/no-v-html -->
+                          <td class="rr-summary rr-md-cell markdown-body" v-html="markdownToSafeHtml(row.book_summary)" />
+                          <td>{{ row.call_number }}</td>
+                          <td class="rr-hint-cell">{{ row.hint }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
 
-                <div class="rr-sep" role="separator" aria-hidden="true">━━━━━</div>
-                <h4 class="rr-section-title">扩展推荐（知识图谱 / 可能非本馆）</h4>
-                <table class="rr-table rr-table-graph">
-                  <thead>
-                    <tr>
-                      <th>题名</th>
-                      <th>简介</th>
-                      <th>索书号</th>
-                      <th>说明</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="(row, idx) in item.readingPayload.graph_rows" :key="`rr-gr-${row.call_number}-${idx}`">
-                      <td>《{{ row.book_title }}》</td>
-                      <!-- eslint-disable-next-line vue/no-v-html -->
-                      <td class="rr-summary rr-md-cell markdown-body" v-html="markdownToSafeHtml(row.book_summary)" />
-                      <td>{{ row.call_number }}</td>
-                      <td class="rr-hint-cell">{{ row.hint }}</td>
-                    </tr>
-                    <tr v-if="!item.readingPayload.graph_rows.length">
-                      <td colspan="4" class="rr-empty">暂无图谱候选或未配置 Neo4j</td>
-                    </tr>
-                  </tbody>
-                </table>
+                <section v-if="readingOffCatalogRows(item.readingPayload).length" class="rr-block rr-block-off">
+                  <h4 class="rr-section-title">延伸阅读（非演示馆藏）</h4>
+                  <p class="rr-block-hint">由模型结合主题与网络参考生成，不表示已编目或已采购。</p>
+                  <div class="rr-table-wrap">
+                    <table class="rr-table">
+                      <thead>
+                        <tr>
+                          <th>书名</th>
+                          <th>荐读说明</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr
+                          v-for="(row, idx) in readingOffCatalogRows(item.readingPayload)"
+                          :key="`rr-off-${row.book_title}-${idx}`"
+                        >
+                          <td>《{{ row.book_title }}》</td>
+                          <td class="rr-summary">{{ row.note || "—" }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
 
                 <!-- eslint-disable-next-line vue/no-v-html -->
                 <div class="rr-footnote markdown-body" v-html="markdownToSafeHtml(item.readingPayload.footnote)" />
@@ -691,7 +780,8 @@
         </div>
       </div>
 
-      <footer class="composer">
+      <!-- 输入框：仅在 chat tab 显示 -->
+      <footer v-if="activeTab === 'chat'" class="composer">
         <input
           v-model.trim="inputText"
           type="text"
@@ -741,6 +831,23 @@ export default {
       exchanges: [],
       /** 页面显示密度：standard | large */
       densityMode: "standard",
+      /** 当前激活的 tab：chat | debug */
+      activeTab: "chat",
+      /** 调试页示例图谱数据（静态示例，真实数据来自 Neo4j） */
+      sampleDisciplines: [
+        { name: "日本文学", bookCount: 12 },
+        { name: "科幻", bookCount: 9 },
+        { name: "计算机科学", bookCount: 7 },
+        { name: "中国文学", bookCount: 15 },
+        { name: "社会学", bookCount: 5 },
+      ],
+      sampleAuthorRelations: [
+        { source: "村上春树", type: "INFLUENCED", target: "林少华", note: "翻译与风格影响" },
+        { source: "刘慈欣", type: "CONTEMPORARY_WITH", target: "王晋康", note: "同属科幻" },
+        { source: "卡夫卡", type: "INFLUENCED", target: "村上春树", note: "荒诞主义传承" },
+        { source: "三岛由纪夫", type: "RIVAL_OF", target: "川端康成", note: "文学观点对立" },
+      ],
+      sampleAuthors: ["刘慈欣", "村上春树", "卡夫卡", "三岛由纪夫", "王晋康"],
       /** 借书交互表单数据 */
       borrowCatalogRows: [],
       borrowQueue: [],
@@ -832,6 +939,23 @@ export default {
     },
     persistDensityMode() {
       localStorage.setItem(STORAGE_DENSITY_KEY, this.densityMode);
+    },
+    /** 清空本地存储与当前会话数据 */
+    clearAllLocalData() {
+      if (!confirm("确定要清空本地所有调试数据与对话记录吗？")) return;
+      localStorage.removeItem(STORAGE_ENDPOINT_KEY);
+      localStorage.removeItem(STORAGE_DEBUG_KEY);
+      localStorage.removeItem(STORAGE_JSON_PANEL_KEY);
+      localStorage.removeItem(STORAGE_DENSITY_KEY);
+      this.endpoint = "http://127.0.0.1:5005/webhooks/rest/webhook";
+      this.debugLog = true;
+      this.showJsonPanel = true;
+      this.densityMode = "standard";
+      this.messages = [];
+      this.exchanges = [];
+      this.borrowQueue = [];
+      this.returnQueue = [];
+      this.pushMessage("system", "聊天记录、交互导出数据与 JSON 调试记录已清空。");
     },
     /**
      * @param {Record<string, unknown>} ex
@@ -935,6 +1059,50 @@ export default {
       const active = Number(policy.active_count || 0);
       return Math.max(0, maxActive - active);
     },
+    returnPolicyDisplay(item) {
+      if (!item || item.kind !== "return_catalog") {
+        return {
+          borrower_id: "",
+          active_count: 0,
+          can_return: false,
+          message: "",
+        };
+      }
+      const p = item.returnPolicy;
+      if (p && typeof p === "object") return p;
+      const rows = Array.isArray(item.rows) ? item.rows : [];
+      const n = rows.length;
+      return {
+        borrower_id: this.senderId || "",
+        active_count: n,
+        can_return: n > 0,
+        message:
+          n > 0
+            ? `当前账号待还 ${n} 本；可在下方选择并批量归还。`
+            : "暂无待还图书。",
+      };
+    },
+    catalogIsReturn(item) {
+      return item && item.kind === "return_catalog";
+    },
+    returnQueueLimitForItem(item) {
+      const rows = item && Array.isArray(item.rows) ? item.rows : [];
+      return Math.max(rows.length, 1);
+    },
+    readingLibraryRows(payload) {
+      const p = payload && typeof payload === "object" ? payload : {};
+      const a = Array.isArray(p.on_shelf_rows) ? p.on_shelf_rows : [];
+      const b = Array.isArray(p.borrowed_rows) ? p.borrowed_rows : [];
+      return [...a, ...b];
+    },
+    readingGraphRows(payload) {
+      const p = payload && typeof payload === "object" ? payload : {};
+      return Array.isArray(p.graph_rows) ? p.graph_rows : [];
+    },
+    readingOffCatalogRows(payload) {
+      const p = payload && typeof payload === "object" ? payload : {};
+      return Array.isArray(p.off_catalog_rows) ? p.off_catalog_rows : [];
+    },
     canAddToQueue(item, row) {
       if (!row || !row.call_number) return false;
       if (this.borrowQueue.some((x) => x.call_number === row.call_number)) return false;
@@ -956,14 +1124,16 @@ export default {
       this.borrowQueue = [];
       this.lastRemovedQueueItem = null;
     },
-    canAddToReturnQueue(row) {
+    canAddToReturnQueue(row, item) {
       if (!row || !row.call_number) return false;
       if (this.returnQueue.some((x) => x.call_number === row.call_number)) return false;
-      return true;
+      const cap = this.returnQueueLimitForItem(item);
+      return this.returnQueue.length < cap;
     },
-    pickReturnCatalogBook(row) {
+    pickReturnCatalogBook(row, item) {
       if (!row) return;
       if (this.returnQueue.some((x) => x.call_number === row.call_number)) return;
+      if (this.returnQueue.length >= this.returnQueueLimitForItem(item)) return;
       this.returnQueue.push(row);
       this.lastRemovedReturnQueueItem = null;
     },
@@ -1134,15 +1304,23 @@ export default {
           if (a.type === "borrow_catalog") {
             this.borrowCatalogRows = p.rows;
             this.currentBorrowPolicy = p.borrow_policy || null;
-            this.pushCatalogMessage(p.rows, p.borrow_policy || null, a.introText || "");
+            if (!muteBotMessages) {
+              this.pushCatalogMessage(p.rows, p.borrow_policy || null, a.introText || "");
+            }
           } else if (a.type === "return_catalog") {
             this.returnCatalogRows = p.rows;
             this.currentReturnPolicy = p.return_policy || null;
-            this.pushReturnCatalogMessage(p.rows, p.return_policy || null, a.introText || "");
+            if (!muteBotMessages) {
+              this.pushReturnCatalogMessage(p.rows, p.return_policy || null, a.introText || "");
+            }
           } else if (a.type === "reading_recommend") {
-            this.pushReadingRecommendMessage(p, a.introText || "");
+            if (!muteBotMessages) {
+              this.pushReadingRecommendMessage(p, a.introText || "");
+            }
           } else if (a.type === "overview_catalog") {
-            this.pushOverviewCatalogMessage(p, a.introText || "");
+            if (!muteBotMessages) {
+              this.pushOverviewCatalogMessage(p, a.introText || "");
+            }
           }
         }
       };
@@ -1202,6 +1380,8 @@ export default {
       this.borrowingQueueSubmitting = true;
       const batchResults = [];
       for (const book of selectedBooks) {
+        // 每本办理前重新进入借书表单：上一本成功后 Rasa 会结束 active_loop，否则仅发书名会落到 utter_default。
+        await this.sendToRasa("借书", null, { muteBotMessages: true });
         // 自动逐本直办：一次请求携带借阅信息，不再走“确认借阅”二次意图。
         const confirmData = await this.sendToRasa(book.book_title || "", {
           borrow_profile: {
@@ -1268,7 +1448,12 @@ export default {
       const texts = rows
         .map((x) => (x && typeof x.text === "string" ? x.text.trim() : ""))
         .filter(Boolean);
-      const merged = texts.join(" ");
+      const circulation = texts.filter((t) =>
+        /借阅已办理|状态已更新为「已借出」|已借出|重复借阅|无法在演示库中重复借阅|上限|请先归还|演示库中暂无|核对书名|核对书名与索书号|数据库|处理失败|稍后再试|系统错误|确认借阅/.test(
+          t
+        )
+      );
+      const merged = (circulation.length ? circulation : texts).join(" ");
       const ok = /借阅已办理|状态已更新为「已借出」/.test(merged);
       let reason = "后端未返回明确结果";
       if (merged) {
@@ -1285,11 +1470,13 @@ export default {
     simplifyBorrowFailureReason(text) {
       const raw = String(text || "");
       if (!raw) return "未知错误";
+      if (/我不太明白您的意思|utter_default/.test(raw)) return "会话状态失效，请重试";
       if (/已借出|重复借阅|无法在演示库中重复借阅/.test(raw)) return "该书已借出";
       if (/上限|未归还.*达到上限|请先归还/.test(raw)) return "超出可借上限";
       if (/未找到|无匹配|核对书名|核对书名与索书号/.test(raw)) return "书目信息无效";
       if (/数据库|处理失败|稍后再试|系统错误/.test(raw)) return "系统繁忙，请稍后重试";
       if (/确认借阅/.test(raw)) return "未完成借阅确认";
+      if (/导读|###\s*📖|《[^》]+》导读/.test(raw)) return "会话串线（误触单书介绍等），请重试「借书」后再提交";
       return raw.slice(0, 48);
     },
     extractReturnResult(data, book) {
@@ -1297,7 +1484,12 @@ export default {
       const texts = rows
         .map((x) => (x && typeof x.text === "string" ? x.text.trim() : ""))
         .filter(Boolean);
-      const merged = texts.join(" ");
+      const circulation = texts.filter((t) =>
+        /归还已办理|状态已更新为「在架」|无需办理归还|无此书的待还|当前账号下无此书|演示库中暂无|核对书名|核对书名与索书号|数据库|处理失败|稍后再试|系统错误|待还记录|确认归还/.test(
+          t
+        )
+      );
+      const merged = (circulation.length ? circulation : texts).join(" ");
       const ok = /归还已办理|状态已更新为「在架」/.test(merged);
       let reason = "后端未返回明确结果";
       if (merged) {
@@ -1319,6 +1511,7 @@ export default {
       if (/无此书的待还记录|当前账号下无此书/.test(raw)) return "无待还记录";
       if (/未找到|核对书名与索书号/.test(raw)) return "书目信息无效";
       if (/数据库|处理失败|稍后再试|系统错误/.test(raw)) return "系统繁忙，请稍后重试";
+      if (/导读|###\s*📖|《[^》]+》导读/.test(raw)) return "会话串线（误触单书介绍等），请重试「还书」后再提交归还";
       return raw.slice(0, 48);
     },
     pushBatchResultMessage(okRows, failRows, profile) {
@@ -1509,14 +1702,27 @@ export default {
       });
     },
     pushReturnCatalogMessage(rows, returnPolicy = null, introText = "") {
+      const rowsArr = Array.isArray(rows) ? rows : [];
+      const policy =
+        returnPolicy && typeof returnPolicy === "object"
+          ? returnPolicy
+          : {
+              borrower_id: this.senderId,
+              active_count: rowsArr.length,
+              can_return: rowsArr.length > 0,
+              message:
+                rowsArr.length > 0
+                  ? `当前账号（${this.senderId}）待还 ${rowsArr.length} 本；可在下方选择并批量归还。`
+                  : "暂无待还图书。",
+            };
       this.messages.push({
         id: `${Date.now()}-${Math.random()}`,
         role: "bot",
         kind: "return_catalog",
         text: "",
         introText: typeof introText === "string" ? introText : "",
-        rows: Array.isArray(rows) ? rows : [],
-        returnPolicy,
+        rows: rowsArr,
+        returnPolicy: policy,
         catalogQuery: "",
         catalogPage: 1,
         catalogPageSize: 10,
@@ -1664,6 +1870,7 @@ export default {
         on_shelf_rows: Array.isArray(p.on_shelf_rows) ? p.on_shelf_rows : [],
         borrowed_rows: Array.isArray(p.borrowed_rows) ? p.borrowed_rows : [],
         graph_rows: Array.isArray(p.graph_rows) ? p.graph_rows : [],
+        off_catalog_rows: Array.isArray(p.off_catalog_rows) ? p.off_catalog_rows : [],
         footnote: typeof p.footnote === "string" ? p.footnote : "",
       };
       this.messages.push({
@@ -1894,14 +2101,102 @@ body {
   min-height: 100vh;
   background: #f3f5f9;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   padding: 24px;
+  gap: 16px;
   font-family: "Microsoft YaHei", Arial, sans-serif;
 }
 
+.sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  background: #fff;
+  border: 1px solid #d9dde6;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  align-self: stretch;
+}
+
+.sidebar-header {
+  padding: 18px 16px 12px;
+  border-bottom: 1px solid #e7eaf0;
+}
+.sidebar-header h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+  color: #1d2939;
+}
+.sidebar-subtitle {
+  margin: 0;
+  font-size: 12px;
+  color: #667085;
+}
+
+.sidebar-nav {
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.nav-item {
+  width: 100%;
+  text-align: left;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #344054;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.nav-item:hover {
+  background: #f2f4f7;
+}
+.nav-item.active {
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  padding: 12px 16px 16px;
+  border-top: 1px solid #e7eaf0;
+  font-size: 12px;
+}
+.endpoint-mini {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.endpoint-mini input {
+  flex: 1;
+  border: 1px solid #cfd5e2;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.endpoint-mini button {
+  padding: 4px 10px;
+  font-size: 12px;
+  border: 1px solid #cfd5e2;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+}
+.version {
+  color: #98a2b3;
+  text-align: center;
+}
+
 .card {
-  width: min(1120px, 100%);
+  flex: 1;
+  max-width: 980px;
   background: #fff;
   border: 1px solid #d9dde6;
   border-radius: 12px;
@@ -1926,6 +2221,9 @@ body {
   margin: 6px 0 0;
   color: #667085;
   font-size: 14px;
+}
+.debug-header {
+  background: linear-gradient(90deg, #f0f4ff, #fff);
 }
 
 .header-controls {
@@ -2046,6 +2344,152 @@ body {
   line-height: 1.45;
   overflow-x: auto;
   max-height: 28vh;
+}
+
+/* 调试面板 */
+.debug-panel {
+  padding: 16px 20px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e7eaf0;
+}
+.debug-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.debug-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.debug-card h3 {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: #1d2939;
+}
+.debug-card .debug-toggle {
+  margin-bottom: 8px;
+}
+.quick-tests {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.quick-tests button {
+  padding: 6px 12px;
+  font-size: 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #f8fafc;
+  cursor: pointer;
+}
+.quick-tests button:hover {
+  background: #e0e7ff;
+  border-color: #6366f1;
+}
+.debug-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #475467;
+}
+.debug-note {
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: #98a2b3;
+}
+
+/* 图谱可视化专用样式 */
+.graph-viz-card {
+  grid-column: span 2;
+}
+.graph-section {
+  margin-bottom: 16px;
+}
+.graph-section h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #334155;
+}
+.discipline-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.pill {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+.pill.discipline {
+  background: #dbeafe;
+  color: #1e40af;
+  border-color: #93c5fd;
+}
+.graph-table {
+  width: 100%;
+  font-size: 12px;
+  border-collapse: collapse;
+}
+.graph-table th,
+.graph-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+}
+.graph-table .rel-badge {
+  background: #fef3c7;
+  color: #92400e;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+.graph-table .note {
+  color: #64748b;
+  font-size: 11px;
+}
+.mini-graph {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  align-items: center;
+}
+.mini-graph .node {
+  padding: 6px 14px;
+  background: #6366f1;
+  color: #fff;
+  border-radius: 999px;
+  font-size: 12px;
+  box-shadow: 0 2px 4px rgba(99, 102, 241, 0.3);
+}
+.mini-graph .edge-label {
+  font-size: 11px;
+  color: #64748b;
+  margin-left: 8px;
+}
+
+/* 会话信息 */
+.session-info {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #475467;
+  line-height: 1.7;
+}
+.session-info code {
+  background: #f1f5f9;
+  padding: 1px 4px;
+  border-radius: 3px;
 }
 
 .endpoint-box input {
@@ -2584,6 +3028,35 @@ body {
   line-height: 1.45;
 }
 
+.rr-block {
+  margin-top: 14px;
+  padding: 12px 12px 4px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+.rr-block-muted {
+  background: #f1f5f9;
+}
+
+.rr-block-off {
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.rr-block-hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.45;
+}
+
+.rr-table-wrap {
+  overflow-x: auto;
+  margin-bottom: 8px;
+}
+
 .rr-topic-pill {
   display: inline-block;
   font-size: 12px;
@@ -2594,14 +3067,6 @@ body {
   padding: 2px 10px;
   border-radius: 999px;
   margin-bottom: 10px;
-}
-
-.rr-sep {
-  text-align: center;
-  letter-spacing: 0.25em;
-  color: #94a3b8;
-  font-size: 11px;
-  margin: 14px 0 10px;
 }
 
 .rr-section-title {

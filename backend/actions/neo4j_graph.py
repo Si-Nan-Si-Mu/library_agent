@@ -1,4 +1,4 @@
-"""Neo4j 书目图谱：主题推荐、只读 Cypher（与 kg_module 导入的 LibraryBook–Author–Topic 结构一致）。"""
+"""Neo4j 书目图谱：主题/学科推荐、作者关系网络、只读 Cypher。"""
 from __future__ import annotations
 
 import logging
@@ -12,6 +12,25 @@ from .neo4j_library_store import expand_topic_search_terms
 logger = logging.getLogger(__name__)
 
 DEFAULT_URI = "bolt://localhost:7687"
+
+
+def _related_author_names(author_name: str, limit: int = 4) -> List[str]:
+    """作者关系网络：取与指定作者有直接关系的其他作者名。"""
+    name = (author_name or "").strip()
+    if not name or not neo4j_use_graph():
+        return []
+    try:
+        from kg_module.graph_networks import fetch_author_network
+    except ImportError:
+        return []
+    peers: List[str] = []
+    for item in fetch_author_network(name, limit=limit + 2):
+        peer = str(item.get("peer") or "").strip()
+        if peer and peer != name and peer not in peers:
+            peers.append(peer)
+        if len(peers) >= limit:
+            break
+    return peers
 
 
 def neo4j_configured() -> bool:
@@ -32,12 +51,15 @@ def _rank_graph_candidates(
         authors = rec.get("authors") or []
         topics = rec.get("topics") or []
         categories = rec.get("categories") or []
+        disciplines = rec.get("disciplines") or []
         if not isinstance(authors, list):
             authors = []
         if not isinstance(topics, list):
             topics = []
         if not isinstance(categories, list):
             categories = []
+        if not isinstance(disciplines, list):
+            disciplines = []
         best_term = 999
         kind_bonus = 0
         lt = title.lower()
@@ -49,6 +71,11 @@ def _rank_graph_candidates(
                 best_term = min(best_term, i)
                 kind_bonus = max(kind_bonus, 4)
             for x in topics:
+                xs = str(x or "").lower()
+                if xs and (tl in xs or xs in tl):
+                    best_term = min(best_term, i)
+                    kind_bonus = max(kind_bonus, 3)
+            for x in disciplines:
                 xs = str(x or "").lower()
                 if xs and (tl in xs or xs in tl):
                     best_term = min(best_term, i)
@@ -90,8 +117,8 @@ def _rank_graph_candidates(
 
 def recommend_books_by_topic(topic: str, limit: int = 8) -> List[Dict[str, Any]]:
     """
-    按主题从图谱取书：匹配 Topic / Category / Author / 书名，并结合 expand_topic_search_terms。
-    返回 dict 含 title, rating, summary, authors, topics, categories, author_bios（与作者顺序对齐的简介列表）。
+    按主题从图谱取书：匹配 Topic / Discipline / Category / Author / 书名。
+    返回 dict 含 title, rating, summary, authors, topics, categories, disciplines, author_bios, related_authors。
     """
     q = (topic or "").strip()
     if not q or not neo4j_use_graph():
@@ -115,16 +142,19 @@ def recommend_books_by_topic(topic: str, limit: int = 8) -> List[Dict[str, Any]]
     MATCH (b:LibraryBook)
     OPTIONAL MATCH (b)-[:WRITTEN_BY]->(a:Author)
     OPTIONAL MATCH (b)-[:BELONGS_TO]->(c:Category)
+    OPTIONAL MATCH (b)-[:IN_DISCIPLINE]->(d:Discipline)
     OPTIONAL MATCH (b)-[:COVERS_TOPIC]->(t:Topic)
-    WITH b, collect(DISTINCT a) AS anodes, collect(DISTINCT c) AS cnodes, collect(DISTINCT t) AS tnodes
+    WITH b, collect(DISTINCT a) AS anodes, collect(DISTINCT c) AS cnodes,
+         collect(DISTINCT d) AS dnodes, collect(DISTINCT t) AS tnodes
     WITH b,
          [x IN anodes WHERE x IS NOT NULL
             | {name: coalesce(x.name, ''), bio: coalesce(x.bio, '')}] AS author_parts,
          [x IN cnodes WHERE x IS NOT NULL | x.name] AS categories,
+         [x IN dnodes WHERE x IS NOT NULL | x.name] AS disciplines,
          [x IN tnodes WHERE x IS NOT NULL | x.name] AS topics
-    WITH b, author_parts, categories, topics,
+    WITH b, author_parts, categories, disciplines, topics,
          [p IN author_parts | p.name] AS authors
-    WITH b, author_parts, categories, topics, authors,
+    WITH b, author_parts, categories, disciplines, topics, authors,
          trim(coalesce(b.lib_book, b.title, '')) AS disp_title
     WHERE ANY(term IN $terms
           WHERE toLower(coalesce(b.book_key, '')) CONTAINS toLower(term)
@@ -134,6 +164,8 @@ def recommend_books_by_topic(topic: str, limit: int = 8) -> List[Dict[str, Any]]
              OR ANY(x IN authors WHERE x <> '' AND toLower(x) CONTAINS toLower(term))
              OR ANY(x IN topics WHERE x IS NOT NULL AND x <> '' AND (
                    toLower(x) CONTAINS toLower(term) OR toLower(term) CONTAINS toLower(x)))
+             OR ANY(x IN disciplines WHERE x IS NOT NULL AND x <> '' AND (
+                   toLower(x) CONTAINS toLower(term) OR toLower(term) CONTAINS toLower(x)))
              OR ANY(x IN categories WHERE x IS NOT NULL AND x <> '' AND (
                    toLower(x) CONTAINS toLower(term) OR toLower(term) CONTAINS toLower(x))))
     RETURN b.book_key AS book_key,
@@ -142,6 +174,7 @@ def recommend_books_by_topic(topic: str, limit: int = 8) -> List[Dict[str, Any]]
            coalesce(b.summary, '') AS summary,
            author_parts,
            categories,
+           disciplines,
            topics
     LIMIT $fetch_limit
     """
@@ -169,6 +202,9 @@ def recommend_books_by_topic(topic: str, limit: int = 8) -> List[Dict[str, Any]]
                         continue
                     authors.append(name)
                     author_bios.append(str(p.get("bio") or "").strip())
+                related_authors: List[str] = []
+                for an in authors[:2]:
+                    related_authors.extend(_related_author_names(an, limit=4))
                 raw_rows.append(
                     {
                         "book_key": str(data.get("book_key") or "").strip(),
@@ -178,7 +214,9 @@ def recommend_books_by_topic(topic: str, limit: int = 8) -> List[Dict[str, Any]]
                         "authors": authors,
                         "author_bios": author_bios,
                         "categories": [str(x) for x in (data.get("categories") or []) if x],
+                        "disciplines": [str(x) for x in (data.get("disciplines") or []) if x],
                         "topics": [str(x) for x in (data.get("topics") or []) if x],
+                        "related_authors": list(dict.fromkeys(related_authors))[:8],
                     }
                 )
     except Exception as exc:  # pragma: no cover

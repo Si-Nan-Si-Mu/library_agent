@@ -190,6 +190,7 @@ forms:
       - space_booking
       - return_book
       - faq
+      - reading_recommend
 
   borrow_call_form:
     required_slots:
@@ -203,6 +204,7 @@ forms:
       - space_booking
       - return_book
       - faq
+      - reading_recommend
 
   return_book_form:
     required_slots:
@@ -215,6 +217,7 @@ forms:
       - space_booking
       - borrow_book
       - faq
+      - reading_recommend
 
   return_call_form:
     required_slots:
@@ -228,6 +231,7 @@ forms:
       - space_booking
       - borrow_book
       - faq
+      - reading_recommend
 
   space_booking_form:
     required_slots:
