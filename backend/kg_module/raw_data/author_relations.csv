@@ -22,3 +22,13 @@ source_author,target_author,relation_type,note
 钱穆,黄仁宇,CONTEMPORARY_WITH,二十世纪中国史研究范式
 柏拉图,罗素,INFLUENCED,西方哲学史脉络中的承续讨论
 亚当·斯密,曼昆,INFLUENCED,古典经济学到现代教材体系
+屈原,李白,INFLUENCED,浪漫主义诗歌源流
+李白,杜甫,CONTEMPORARY_WITH,盛唐诗歌双璧
+苏轼,李清照,CONTEMPORARY_WITH,宋代词坛代表
+蒲松龄,曹雪芹,CONTEMPORARY_WITH,清代小说创作高峰
+吴敬梓,蒲松龄,CONTEMPORARY_WITH,清代讽刺与志怪小说
+曹雪芹,吴敬梓,CONTEMPORARY_WITH,明清古典小说世情书写
+汤显祖,王实甫,CONTEMPORARY_WITH,元明戏曲经典
+司马迁,司马光,INFLUENCED,史家编年叙事传统
+孔子,老子,CONTEMPORARY_WITH,先秦诸子百家争鸣
+罗贯中,施耐庵,INFLUENCED,章回体演义与英雄传奇传统

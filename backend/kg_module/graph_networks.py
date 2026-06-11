@@ -17,7 +17,15 @@ from neo4j_auth import driver_kwargs, resolve_auth
 DEFAULT_URI = "bolt://localhost:7687"
 
 VALID_AUTHOR_REL_TYPES = frozenset(
-    {"INFLUENCED", "CONTEMPORARY_WITH", "RIVAL_OF", "SHARES_DISCIPLINE_WITH"}
+    {
+        "INFLUENCED",
+        "CONTEMPORARY_WITH",
+        "RIVAL_OF",
+        "SHARES_DISCIPLINE_WITH",
+        # 兼容 library-RAG-Rasa 参考仓库 author_relations.csv 的关系类型
+        "INFLUENCED_BY",
+        "IN_SAME_FIELD",
+    }
 )
 
 # 同一学科下作者两两建立「同时代/同领域」边的上限（避免完全图爆炸）

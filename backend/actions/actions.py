@@ -50,6 +50,8 @@ from .intent_coverage import (
 )
 from .graph_rag import graph_rag_enabled, graph_rag_retrieve_evidence
 from .neo4j_graph import recommend_books_by_topic as neo4j_recommend_by_topic
+from .neo4j_connector import get_author_profile
+from .llm_server import generate_author_reply
 
 _DATA_INQUIRY_SYSTEM = (
     "你是高校图书馆智能助手（演示环境）。用户会做开放数据、统计口径、借阅趋势类、推荐阅读等类别的提问。"
@@ -197,32 +199,26 @@ def _weak_topic_from_utterance(text: str) -> str:
     }
     if s in vague:
         return ""
-    for p in (
-        "推荐阅读",
-        "推荐一下",
-        "给我推荐",
-        "帮我推荐",
-        "请推荐",
-        "推荐点",
-        "推荐些",
-        "推荐几本",
-        "推荐",
-        "有没有关于",
-        "关于",
-        "想读点",
-        "想看点",
-        "想看",
-        "来点",
-        "想找",
-        "求推荐",
-        "求安利",
-        "安利",
-        "按主题",
-        "按",
-    ):
-        if s.startswith(p):
-            s = s[len(p) :].lstrip(" ，。、；:：的")
-    s = re.sub(r"(的书|书籍|图书|书单|方面|领域|方向)$", "", s).strip()
+
+    # 循环/多次剥离句子前导的修饰词、疑问词和礼貌用语，直到不发生变化
+    prev = None
+    while s != prev:
+        prev = s
+        s = re.sub(
+            r"^(能不能|可以帮我|帮我|给我|我想看|我想读|我想|我想要|能帮我|能不能帮我|是否可以|请问|请|有没有|有无|有没有关于|关于|有|有没有推荐|有没有推荐点|推荐阅读|推荐一下|推荐点|推荐些|推荐几本|推荐|求推荐|求安利|来点|想找|想看点|想读点|可以推荐一下|可以推荐|介绍一下|介绍|说说|讲讲|科普一下|安利|看一下|看点|看些|随便看看)",
+            "",
+            s,
+            flags=re.IGNORECASE,
+        ).strip()
+        s = s.lstrip(" ，。、；:：的?!？")
+
+    # 移除末尾无用后缀
+    s = re.sub(
+        r"(的相关书籍|相关的书籍|相关书目|相关的书|相关图书|相关书|的书籍|的书目|的书|书籍|图书|书目|书单|方面|领域|方向|文献|文献资料|资料|的文献|的书单)$",
+        "",
+        s,
+    ).strip()
+
     if len(s) > 48:
         s = s[:48].rstrip(" ，。、") + "…"
     return s
@@ -506,15 +502,14 @@ def _reading_recommend_custom_message(
         "payload_type": "reading_recommend",
         "topic": topic,
         "intro": (
-            f"主题「{topic}」｜下方首表为演示库**本馆馆藏**（在架与已借出）；"
-            "次表为图谱补充（未出现在主题检索表中的本馆关联书）；末表为**非演示馆藏**的延伸阅读。"
+            f"主题「{topic}」｜下方为图谱补充（本馆关联书目）与**非演示馆藏**延伸阅读。"
         ),
         "on_shelf_rows": [cat_row(r) for r in on_shelf[:40]],
         "borrowed_rows": [cat_row(r) for r in borrowed[:40]],
         "graph_rows": graph_out[:12],
         "off_catalog_rows": off_catalog_rows[:12],
         "footnote": (
-            "在架与索书号以「本馆馆藏」表为准；图谱补充仍为本馆节点时以 Neo4j 为准；"
+            "本馆节点以 Neo4j 图谱为准；"
             "「非本馆演示藏书」由模型生成，**未承诺已采购或已编目**，仅供阅读拓展。"
         ),
     }
@@ -565,6 +560,76 @@ def _is_generic_borrow_command(text: Any) -> bool:
         r"^办理借阅$",
     )
     return any(re.fullmatch(p, compact) for p in patterns)
+
+
+def _circulation_session_reset_events() -> List[Dict[Text, Any]]:
+    """借还流程异常兜底后清理槽位，避免后续「还书/你好」等意图持续落入 utter_default。"""
+    return [
+        SlotSet("borrow_phase", "idle"),
+        SlotSet("return_phase", "idle"),
+        SlotSet("defer_nlu_fallback", False),
+        SlotSet("book_title", None),
+        SlotSet("call_number", None),
+        ActiveLoop(None),
+    ]
+
+
+def _try_circulation_from_metadata(
+    dispatcher: CollectingDispatcher,
+    tracker: Tracker,
+    title_fallback: str = "",
+) -> Optional[List[Dict[Text, Any]]]:
+    """前端 REST metadata 批量借还：携带 callNumber 时直办借阅/归还。"""
+    metadata = tracker.latest_message.get("metadata") or {}
+    if not isinstance(metadata, dict):
+        return None
+
+    return_profile = metadata.get("return_profile")
+    if isinstance(return_profile, dict):
+        prof_call = _normalize_call_input(return_profile.get("callNumber"))
+        prof_title = (str(return_profile.get("bookTitle") or "")).strip() or title_fallback
+        if prof_call:
+            borrower_id = (tracker.sender_id or "").strip()
+            ok, _, detail = return_book(prof_title, prof_call, borrower_id=borrower_id)
+            dispatcher.utter_message(text=detail)
+            return [
+                AllSlotsReset(),
+                SlotSet("api_return_succeed", ok),
+                SlotSet("last_return_detail", detail),
+                ActiveLoop(None),
+                FollowupAction("action_listen"),
+            ]
+
+    borrow_profile = metadata.get("borrow_profile")
+    if isinstance(borrow_profile, dict):
+        prof_call = _normalize_call_input(borrow_profile.get("callNumber"))
+        prof_title = (str(borrow_profile.get("bookTitle") or "")).strip() or title_fallback
+        if prof_call:
+            borrower_id = (tracker.sender_id or "").strip()
+            contact = str(borrow_profile.get("studentOrPhone") or "").strip()
+            display_name = str(borrow_profile.get("name") or borrower_id).strip() or borrower_id
+            if contact:
+                display_name = f"{display_name}（{contact}）"
+            ok, book_info, detail = borrow_book(prof_title, prof_call, borrower_id=borrower_id)
+            if ok:
+                written = record_borrow_transaction(
+                    book_snapshot=book_info,
+                    borrower_id=borrower_id,
+                    borrower_name=display_name,
+                    borrow_at=str(borrow_profile.get("borrowAt") or ""),
+                    due_at=str(borrow_profile.get("dueAt") or ""),
+                )
+                if written:
+                    detail = f"{detail}\n已登记借阅人信息。"
+            dispatcher.utter_message(text=detail)
+            return [
+                AllSlotsReset(),
+                SlotSet("api_borrow_succeed", ok),
+                SlotSet("last_borrow_detail", detail),
+                ActiveLoop(None),
+                FollowupAction("action_listen"),
+            ]
+    return None
 
 
 def _is_demo_book_reference(text: Any) -> bool:
@@ -815,36 +880,9 @@ class ActionBorrowBookFormSubmit(Action):
                     ActiveLoop(None),
                     FollowupAction("action_listen"),
                 ]
-        profile = metadata.get("borrow_profile") if isinstance(metadata, dict) else {}
-        # 前端批量提交会携带 borrow_profile：此处直办借阅，避免再依赖“确认”意图识别。
-        if isinstance(profile, dict):
-            prof_call = _normalize_call_input(profile.get("callNumber"))
-            prof_title = (str(profile.get("bookTitle") or "")).strip() or title
-            if prof_call:
-                borrower_id = (tracker.sender_id or "").strip()
-                contact = str(profile.get("studentOrPhone") or "").strip()
-                display_name = str(profile.get("name") or borrower_id).strip() or borrower_id
-                if contact:
-                    display_name = f"{display_name}（{contact}）"
-                ok, book_info, detail = borrow_book(prof_title, prof_call, borrower_id=borrower_id)
-                if ok:
-                    written = record_borrow_transaction(
-                        book_snapshot=book_info,
-                        borrower_id=borrower_id,
-                        borrower_name=display_name,
-                        borrow_at=str(profile.get("borrowAt") or ""),
-                        due_at=str(profile.get("dueAt") or ""),
-                    )
-                    if written:
-                        detail = f"{detail}\n已登记借阅人信息。"
-                dispatcher.utter_message(text=detail)
-                return [
-                    AllSlotsReset(),
-                    SlotSet("api_borrow_succeed", ok),
-                    SlotSet("last_borrow_detail", detail),
-                    ActiveLoop(None),
-                    FollowupAction("action_listen"),
-                ]
+        meta_events = _try_circulation_from_metadata(dispatcher, tracker, title)
+        if meta_events is not None:
+            return meta_events
         rows = _dedupe_rows_by_call_number(list_on_shelf_by_title(title))
         if not rows:
             dispatcher.utter_message(
@@ -1081,22 +1119,9 @@ class ActionReturnBookFormSubmit(Action):
 
     def run(self, dispatcher, tracker, domain):
         title = (tracker.get_slot("book_title") or "").strip()
-        metadata = tracker.latest_message.get("metadata") or {}
-        profile = metadata.get("return_profile") if isinstance(metadata, dict) else {}
-        if isinstance(profile, dict):
-            prof_call = _normalize_call_input(profile.get("callNumber"))
-            prof_title = (str(profile.get("bookTitle") or "")).strip() or title
-            if prof_call:
-                borrower_id = (tracker.sender_id or "").strip()
-                ok, _, detail = return_book(prof_title, prof_call, borrower_id=borrower_id)
-                dispatcher.utter_message(text=detail)
-                return [
-                    AllSlotsReset(),
-                    SlotSet("api_return_succeed", ok),
-                    SlotSet("last_return_detail", detail),
-                    ActiveLoop(None),
-                    FollowupAction("action_listen"),
-                ]
+        meta_events = _try_circulation_from_metadata(dispatcher, tracker, title)
+        if meta_events is not None:
+            return meta_events
         rows = list_borrowed_by_title(title)
         if not rows:
             dispatcher.utter_message(
@@ -1670,6 +1695,10 @@ class ActionBookIntroduce(Action):
         tracker: Tracker,
         domain: Dict[Text, Any],
     ) -> List[Dict[Text, Any]]:
+        user_text = (tracker.latest_message.get("text") or "").strip()
+        meta_events = _try_circulation_from_metadata(dispatcher, tracker, user_text)
+        if meta_events is not None:
+            return meta_events
         row, user_text = _resolve_book_intro_row(tracker)
         if not row:
             dispatcher.utter_message(
@@ -1849,15 +1878,18 @@ class ActionNluFallbackRouter(Action):
         domain: Dict[Text, Any],
     ) -> List[Dict[Text, Any]]:
         user_text = (tracker.latest_message.get("text") or "").strip()
+        meta_events = _try_circulation_from_metadata(dispatcher, tracker, user_text)
+        if meta_events is not None:
+            return meta_events
         if not user_text:
             dispatcher.utter_message(response="utter_default")
-            return []
+            return _circulation_session_reset_events()
 
         kb_scored = score_kb_entries(user_text)
         nlu_signals = nlu_intent_signals(tracker.latest_message)
         if not should_treat_as_compound_fallback(user_text, kb_scored, nlu_signals):
             dispatcher.utter_message(response="utter_default")
-            return []
+            return _circulation_session_reset_events()
 
         payload = build_deepseek_user_payload(user_text, kb_scored, nlu_signals)
         system = _deepseek_multi_intent_system()
@@ -1876,8 +1908,48 @@ class ActionNluFallbackRouter(Action):
         content, _err = deepseek_chat(payload, system=system)
         if not content:
             dispatcher.utter_message(response="utter_default")
-            return []
+            return _circulation_session_reset_events()
 
         suffix = "（以上内容由大模型生成；演示环境无接入实时统计，请勿作为官方数据依据。）"
         dispatcher.utter_message(text=f"{content}\n\n{suffix}")
         return []
+
+
+class ActionIntroduceAuthor(Action):
+    """
+    作者介绍（构成对齐 library-RAG-Rasa 仓库的 action_introduce_author）：
+    取 author 槽 → neo4j_connector 查档案 → llm_server 生成介绍 → 清槽防止跨轮污染。
+    """
+
+    def name(self) -> Text:
+        return "action_introduce_author"
+
+    def run(
+        self,
+        dispatcher: CollectingDispatcher,
+        tracker: Tracker,
+        domain: Dict[Text, Any],
+    ) -> List[Dict[Text, Any]]:
+        author = (tracker.get_slot("author") or "").strip()
+        if not author:
+            entities = tracker.latest_message.get("entities") or []
+            for ent in entities:
+                if ent.get("entity") == "author" and str(ent.get("value") or "").strip():
+                    author = str(ent["value"]).strip()
+                    break
+        if not author:
+            dispatcher.utter_message(
+                text="想了解哪位作者？可以告诉我作者姓名，例如「介绍一下刘慈欣」。"
+            )
+            return []
+
+        kg_results = get_author_profile(author)
+        if not kg_results:
+            dispatcher.utter_message(
+                text=f"抱歉，目前的知识图谱中尚未收录关于「{author}」的详细资料。"
+            )
+            return [SlotSet("author", None)]
+
+        reply = generate_author_reply(author, kg_results)
+        dispatcher.utter_message(text=reply)
+        return [SlotSet("author", None)]

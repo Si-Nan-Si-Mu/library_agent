@@ -85,6 +85,22 @@ rules:
       - action: return_book_form
       - active_loop: return_book_form
 
+  - rule: 借书择号表单内 nlu_fallback 继续追问
+    condition:
+      - active_loop: borrow_call_form
+    steps:
+      - intent: nlu_fallback
+      - action: borrow_call_form
+      - active_loop: borrow_call_form
+
+  - rule: 还书择号表单内 nlu_fallback 继续追问
+    condition:
+      - active_loop: return_call_form
+    steps:
+      - intent: nlu_fallback
+      - action: return_call_form
+      - active_loop: return_call_form
+
   # 书名短句常被标成 book_introduce：若不拦截会中断表单并命中「单书介绍」规则，批量还书时 return_profile 无法被提交。
   - rule: 借书表单内 book_introduce 继续追问
     condition:
@@ -117,6 +133,45 @@ rules:
       - intent: book_introduce
       - action: return_call_form
       - active_loop: return_call_form
+
+  # 借/还表单进行中用户改口：先退出当前表单再进入目标流程（不可仅靠 ignored_intents，否则会 action_execution_rejected 卡死）
+  - rule: 借书表单中改口还书
+    condition:
+      - active_loop: borrow_book_form
+    steps:
+      - intent: return_book
+      - action: action_deactivate_loop
+      - active_loop: null
+      - action: return_book_form
+      - active_loop: return_book_form
+
+  - rule: 还书表单中改口借书
+    condition:
+      - active_loop: return_book_form
+    steps:
+      - intent: borrow_book
+      - action: action_deactivate_loop
+      - active_loop: null
+      - action: borrow_book_form
+      - active_loop: borrow_book_form
+
+  - rule: 借书表单中问候
+    condition:
+      - active_loop: borrow_book_form
+    steps:
+      - intent: greet
+      - action: action_deactivate_loop
+      - active_loop: null
+      - action: utter_greet
+
+  - rule: 还书表单中问候
+    condition:
+      - active_loop: return_book_form
+    steps:
+      - intent: greet
+      - action: action_deactivate_loop
+      - active_loop: null
+      - action: utter_greet
 
   # 用户按 utter_default 提示说「推荐阅读」等时，若仍在借/还书填表流程，原「推荐阅读」规则因 active_loop 非 null 不命中；先退出表单再进入推荐。
   - rule: 借书表单中推荐阅读
@@ -237,6 +292,14 @@ rules:
       - intent: book_introduce
       - action: action_deactivate_loop
       - action: action_book_introduce
+
+  - rule: 作者介绍（图谱档案 + LLM 生成）
+    condition:
+      - active_loop: null
+    steps:
+      - intent: introduce_author
+      - action: action_deactivate_loop
+      - action: action_introduce_author
 
   - rule: FAQ
     condition:

@@ -506,44 +506,6 @@
                 <div class="rr-intro markdown-body" v-html="markdownToSafeHtml(item.readingPayload.intro)" />
                 <div class="rr-topic-pill">检索主题：{{ item.readingPayload.topic }}</div>
 
-                <section class="rr-block">
-                  <h4 class="rr-section-title">本馆馆藏（演示库）</h4>
-                  <p class="rr-block-hint">在架与已借出合并展示；索书号、位置与借阅状态以本表为准。</p>
-                  <div class="rr-table-wrap">
-                    <table class="rr-table">
-                      <thead>
-                        <tr>
-                          <th>书名</th>
-                          <th>简介</th>
-                          <th>索书号</th>
-                          <th>馆藏位置</th>
-                          <th>状态</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr
-                          v-for="(row, idx) in readingLibraryRows(item.readingPayload)"
-                          :key="`rr-lib-${row.call_number}-${idx}`"
-                        >
-                          <td>《{{ row.book_title }}》</td>
-                          <td class="rr-summary">{{ row.book_summary || "—" }}</td>
-                          <td>{{ row.call_number }}</td>
-                          <td>{{ row.book_pos }}</td>
-                          <td>
-                            <span
-                              class="rr-badge"
-                              :class="row.status === '在架可借' ? 'rr-badge-ok' : 'rr-badge-out'"
-                            >{{ row.status }}</span>
-                          </td>
-                        </tr>
-                        <tr v-if="!readingLibraryRows(item.readingPayload).length">
-                          <td colspan="5" class="rr-empty">暂无馆藏命中记录</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-
                 <section v-if="readingGraphRows(item.readingPayload).length" class="rr-block rr-block-muted">
                   <h4 class="rr-section-title">图谱补充（本馆节点，主题检索未列出）</h4>
                   <p class="rr-block-hint">来自知识图谱扩展，与上表不重复。</p>
@@ -1089,12 +1051,6 @@ export default {
       const rows = item && Array.isArray(item.rows) ? item.rows : [];
       return Math.max(rows.length, 1);
     },
-    readingLibraryRows(payload) {
-      const p = payload && typeof payload === "object" ? payload : {};
-      const a = Array.isArray(p.on_shelf_rows) ? p.on_shelf_rows : [];
-      const b = Array.isArray(p.borrowed_rows) ? p.borrowed_rows : [];
-      return [...a, ...b];
-    },
     readingGraphRows(payload) {
       const p = payload && typeof payload === "object" ? payload : {};
       return Array.isArray(p.graph_rows) ? p.graph_rows : [];
@@ -1380,10 +1336,9 @@ export default {
       this.borrowingQueueSubmitting = true;
       const batchResults = [];
       for (const book of selectedBooks) {
-        // 每本办理前重新进入借书表单：上一本成功后 Rasa 会结束 active_loop，否则仅发书名会落到 utter_default。
-        await this.sendToRasa("借书", null, { muteBotMessages: true });
-        // 自动逐本直办：一次请求携带借阅信息，不再走“确认借阅”二次意图。
-        const confirmData = await this.sendToRasa(book.book_title || "", {
+        // 直办：索书号 + borrow_profile，由 Action 读取 metadata，无需先重复发送「借书」（避免表单卡死）。
+        const submitText = (book.call_number || book.book_title || "").trim();
+        const confirmData = await this.sendToRasa(submitText, {
           borrow_profile: {
             studentOrPhone,
             name,
@@ -1399,6 +1354,9 @@ export default {
       this.borrowingQueueSubmitting = false;
       const okRows = batchResults.filter((x) => x.ok);
       const failRows = batchResults.filter((x) => !x.ok);
+      if (failRows.some((x) => /会话状态失效/.test(x.reason))) {
+        await this.resetRasaConversation("批量借阅出现会话状态异常，已自动重置对话；请重新点击「借书」后再试。");
+      }
       this.syncBorrowCatalogAfterSubmit(okRows);
       this.borrowQueue = [];
       this.lastRemovedQueueItem = null;
@@ -1421,9 +1379,8 @@ export default {
       const selectedBooks = [...this.returnQueue];
       const batchResults = [];
       for (const book of selectedBooks) {
-        // 逐本归还前先静默拉起还书表单，避免上一本提交后表单已被重置导致后续落入 utter_default。
-        await this.sendToRasa("还书", null, { muteBotMessages: true });
-        const data = await this.sendToRasa(book.book_title || "", {
+        const submitText = (book.call_number || book.book_title || "").trim();
+        const data = await this.sendToRasa(submitText, {
           return_profile: {
             bookTitle: book.book_title || "",
             callNumber: book.call_number || "",
@@ -1434,6 +1391,9 @@ export default {
       this.returningQueueSubmitting = false;
       const okRows = batchResults.filter((x) => x.ok);
       const failRows = batchResults.filter((x) => !x.ok);
+      if (failRows.some((x) => /会话状态失效/.test(x.reason))) {
+        await this.resetRasaConversation("批量归还出现会话状态异常，已自动重置对话；请重新点击「还书」后再试。");
+      }
       this.syncReturnCatalogAfterSubmit(okRows);
       this.returnQueue = failRows.map((x) => ({
         book_title: x.book_title,
@@ -1867,8 +1827,6 @@ export default {
       const readingPayload = {
         topic: typeof p.topic === "string" ? p.topic : "",
         intro: introMerged,
-        on_shelf_rows: Array.isArray(p.on_shelf_rows) ? p.on_shelf_rows : [],
-        borrowed_rows: Array.isArray(p.borrowed_rows) ? p.borrowed_rows : [],
         graph_rows: Array.isArray(p.graph_rows) ? p.graph_rows : [],
         off_catalog_rows: Array.isArray(p.off_catalog_rows) ? p.off_catalog_rows : [],
         footnote: typeof p.footnote === "string" ? p.footnote : "",
@@ -1914,6 +1872,47 @@ export default {
       this.inputText = "";
       this.pushMessage("user", userText);
       await this.sendToRasa(userText);
+    },
+    isUtterDefaultReply(data) {
+      const rows = Array.isArray(data) ? data : [];
+      return rows.some(
+        (item) =>
+          item &&
+          typeof item.text === "string" &&
+          /我不太明白您的意思/.test(item.text.trim())
+      );
+    },
+    rotateSenderId(hint) {
+      this.senderId = `web-user-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+      localStorage.setItem(STORAGE_SENDER_KEY, this.senderId);
+      if (hint) {
+        this.pushMessage("system", hint);
+      }
+    },
+    async resetRasaConversation(hint) {
+      if (!this.endpoint || !this.senderId) return false;
+      const base = this.endpoint.replace(/\/webhooks\/rest\/webhook\/?$/i, "");
+      try {
+        const resp = await fetch(
+          `${base}/conversations/${encodeURIComponent(this.senderId)}/tracker/events`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ event: "restart" }),
+          }
+        );
+        if (resp.ok) {
+          this.logRasa("会话 tracker 已 restart", { sender: this.senderId });
+          if (hint) this.pushMessage("system", hint);
+          return true;
+        }
+      } catch (err) {
+        this.logRasa("会话 tracker restart 失败", {
+          message: err && err.message ? err.message : String(err),
+        });
+      }
+      this.rotateSenderId(hint || "旧会话无法重置，已切换为新会话 ID。");
+      return false;
     },
     async sendToRasa(userText, metadata = null, options = null) {
       if (!userText || this.sending) return [];
@@ -2066,6 +2065,11 @@ export default {
         }
         this.removeMessageById(pendingId);
         this.applyRasaResponseMessages(data, muteBotMessages);
+        if (!muteBotMessages && this.isUtterDefaultReply(data)) {
+          await this.resetRasaConversation(
+            "检测到会话状态异常，已自动重置。请重新发送「借书」或「还书」。"
+          );
+        }
         return data;
       } catch (error) {
         clearThinkTimer();
@@ -2093,24 +2097,36 @@ export default {
   box-sizing: border-box;
 }
 
+html,
+body,
+#app {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
 }
 
 .page {
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
   background: #f3f5f9;
   display: flex;
-  align-items: flex-start;
+  align-items: stretch;
   justify-content: center;
   padding: 24px;
   gap: 16px;
   font-family: "Microsoft YaHei", Arial, sans-serif;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .sidebar {
   width: 220px;
   flex-shrink: 0;
+  min-height: 0;
+  max-height: 100%;
   background: #fff;
   border: 1px solid #d9dde6;
   border-radius: 12px;
@@ -2118,12 +2134,15 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  align-self: stretch;
 }
 
 .sidebar-header {
-  padding: 18px 16px 12px;
+  padding: 14px 16px;
   border-bottom: 1px solid #e7eaf0;
+  min-height: 72px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 .sidebar-header h2 {
   margin: 0 0 4px;
@@ -2137,6 +2156,9 @@ body {
 }
 
 .sidebar-nav {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   padding: 12px 8px;
   display: flex;
   flex-direction: column;
@@ -2196,12 +2218,17 @@ body {
 
 .card {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
+  max-height: 100%;
   max-width: 980px;
   background: #fff;
   border: 1px solid #d9dde6;
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
 }
 
 .header {
@@ -2209,7 +2236,10 @@ body {
   border-bottom: 1px solid #e7eaf0;
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 12px;
+  min-height: 72px;
+  flex-shrink: 0;
 }
 
 .header h1 {
@@ -2348,6 +2378,9 @@ body {
 
 /* 调试面板 */
 .debug-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   padding: 16px 20px;
   background: #f8fafc;
   border-bottom: 1px solid #e7eaf0;
@@ -2510,8 +2543,8 @@ body {
 }
 
 .chat-list {
-  height: 64vh;
-  min-height: 420px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   background: #fbfcff;
   padding: 16px;
@@ -3146,6 +3179,7 @@ body {
   padding: 12px;
   display: flex;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .composer input {
@@ -3213,10 +3247,6 @@ body {
 
 .page.density-large .bubble {
   font-size: 15px;
-}
-
-.page.density-large .chat-list {
-  height: 68vh;
 }
 
 .page.density-large .endpoint-box input,

@@ -37,6 +37,15 @@ MERGE (t:Topic {name: $topic})
 MERGE (b)-[:COVERS_TOPIC]->(t)
 """
 
+# 导入作者详细档案（对齐 library-RAG-Rasa 仓库的 authors.csv 构成；bio 非空才覆盖）
+IMPORT_AUTHORS_CYPHER = """
+MERGE (a:Author {name: $name})
+SET a.primary_field = CASE WHEN trim(coalesce($primary_field, '')) <> ''
+                           THEN trim($primary_field) ELSE coalesce(a.primary_field, '') END,
+    a.bio = CASE WHEN trim(coalesce($bio, '')) <> ''
+                 THEN trim($bio) ELSE coalesce(a.bio, '') END
+"""
+
 
 def _parse_is_borrow_cell(raw: Optional[str]) -> Optional[int]:
     """CSV 借阅标识：空或未列出不返回（导入时不改）；0/1、true/false、在架/已借 等。"""
@@ -134,6 +143,42 @@ def prune_orphan_library_books() -> None:
         driver.close()
 
 
+def import_extended_data(authors_csv_path: Optional[str] = None) -> int:
+    """
+    导入作者扩展档案 authors.csv（name, primary_field, bio）。
+    作者关系 author_relations.csv 由 graph_networks.build_knowledge_networks 统一导入。
+    """
+    import csv as _csv
+    from pathlib import Path
+
+    path = (
+        Path(authors_csv_path)
+        if authors_csv_path
+        else Path(__file__).resolve().parent / "raw_data" / "authors.csv"
+    )
+    if not path.is_file():
+        return 0
+    count = 0
+    driver = _driver()
+    try:
+        with driver.session() as session, path.open(encoding="utf-8") as f:
+            reader = _csv.DictReader(f)
+            for row in reader:
+                name = (row.get("name") or "").strip()
+                if not name:
+                    continue
+                session.run(
+                    IMPORT_AUTHORS_CYPHER,
+                    name=name,
+                    primary_field=(row.get("primary_field") or "").strip(),
+                    bio=(row.get("bio") or "").strip(),
+                )
+                count += 1
+    finally:
+        driver.close()
+    return count
+
+
 def import_csv_to_neo4j(csv_file_path: str) -> int:
     driver = _driver()
     success_count = 0
@@ -174,6 +219,11 @@ def import_csv_to_neo4j(csv_file_path: str) -> int:
     finally:
         driver.close()
     prune_orphan_library_books()
+    try:
+        authors_count = import_extended_data()
+        print(f"作者扩展档案 authors.csv：已导入 {authors_count} 条。")
+    except Exception as exc:
+        print(f"作者扩展档案导入跳过或失败: {exc}")
     try:
         from graph_networks import build_knowledge_networks
 

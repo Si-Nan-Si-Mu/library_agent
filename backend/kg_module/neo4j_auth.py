@@ -24,7 +24,12 @@ def resolve_auth() -> AuthArg:
     - 有 NEO4J_PASSWORD：basic (USER, PASSWORD)
     - 无密码且 NEO4J_AUTH_NONE=1：None（要求 Neo4j 以关闭鉴权方式运行，如 docker -e NEO4J_AUTH=none）
     """
-    user = (os.environ.get("NEO4J_USER") or "neo4j").strip()
+    # 兼容两种变量名：NEO4J_USER（本项目）与 NEO4J_USERNAME（Aura 下载的凭据文件）
+    user = (
+        os.environ.get("NEO4J_USER")
+        or os.environ.get("NEO4J_USERNAME")
+        or "neo4j"
+    ).strip()
     password = (os.environ.get("NEO4J_PASSWORD") or "").strip()
     if password:
         return (user, password)

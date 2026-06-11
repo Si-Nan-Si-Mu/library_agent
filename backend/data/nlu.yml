@@ -451,6 +451,23 @@ nlu:
       - 评价一下傲慢与偏见
       - 什么是统计学习方法
 
+  - intent: introduce_author
+    examples: |
+      - 给我介绍一下[威廉·吉布森](author)
+      - [李航](author)是谁
+      - 我想了解[伊恩·古德费洛](author)的生平
+      - 查询作者[菲利普·迪克](author)
+      - 介绍作者[刘慈欣](author)
+      - [村上春树](author)是个什么样的作家
+      - 讲讲[余华](author)这个人
+      - 作者[钱钟书](author)的资料
+      - 介绍一下作家[加西亚·马尔克斯](author)
+      - [东野圭吾](author)是谁
+      - 了解一下[司马迁](author)
+      - [曹雪芹](author)的生平
+      - 这位作者[罗素](author)是干什么的
+      - 作家[史蒂芬·霍金](author)简介
+
   - intent: borrow_book
     examples: |
       - 我要借书
@@ -598,9 +615,9 @@ nlu:
       - 不咨询了，直接还[西游记](book_title)
       - 我来办理还书，不是问规则
       - 先还一本[平凡的世界](book_title)
-      - 我要还红楼梦
-      - 还一下java核心技术
-      - 归还《Java 核心技术（教学参考第1辑）》
+      - 我要还[红楼梦](book_title)
+      - 还一下[Java 核心技术](book_title)
+      - 归还[Java 核心技术（教学参考第1辑）](book_title)
       - 帮我还 索书号 [TP311.5/PY-01](call_number)
       - 归还条码 [B-HLM-001](call_number)
       - 我现在要还[数据库系统概论](book_title)

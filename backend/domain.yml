@@ -26,6 +26,9 @@ intents:
   - book_introduce:
       use_entities:
         - book_title
+  - introduce_author:
+      use_entities:
+        - author
   - borrow_record_query
 
 entities:
@@ -188,9 +191,18 @@ forms:
       - ask_capabilities
       - borrow_guide
       - space_booking
-      - return_book
       - faq
       - reading_recommend
+      # 下列意图若不在 ignored 中，Rasa 会先 deactivate 表单，表单内规则无法命中，批量借还会落到 utter_default
+      - nlu_fallback
+      - book_introduce
+      - data_inquiry
+      - deny
+      - affirm
+      - introduce_author
+      - book_overview
+      - book_overview_pager
+      # 注意：borrow_book 不可 ignored，否则批量流程二次发送「借书」会导致 borrow_book_form 被拒绝并卡死
 
   borrow_call_form:
     required_slots:
@@ -205,6 +217,13 @@ forms:
       - return_book
       - faq
       - reading_recommend
+      - nlu_fallback
+      - book_introduce
+      - deny
+      - affirm
+      - introduce_author
+      - book_overview
+      - book_overview_pager
 
   return_book_form:
     required_slots:
@@ -215,9 +234,17 @@ forms:
       - ask_capabilities
       - borrow_guide
       - space_booking
-      - borrow_book
       - faq
       - reading_recommend
+      - nlu_fallback
+      - book_introduce
+      - data_inquiry
+      - deny
+      - affirm
+      - introduce_author
+      - book_overview
+      - book_overview_pager
+      # return_book 不可 ignored，否则批量归还二次「还书」会卡死
 
   return_call_form:
     required_slots:
@@ -232,6 +259,13 @@ forms:
       - borrow_book
       - faq
       - reading_recommend
+      - nlu_fallback
+      - book_introduce
+      - deny
+      - affirm
+      - introduce_author
+      - book_overview
+      - book_overview_pager
 
   space_booking_form:
     required_slots:
@@ -363,6 +397,7 @@ actions:
   - action_reading_recommend
   - action_book_overview
   - action_book_introduce
+  - action_introduce_author
   - action_borrow_record_query
   - action_data_inquiry
   - action_nlu_fallback_router

@@ -101,7 +101,37 @@ _TOPIC_SEARCH_EXPANSIONS: Dict[str, List[str]] = {
     "俄国文学": ["俄国文学", "俄罗斯文学", "俄国", "俄罗斯", "托尔斯泰", "陀思妥耶夫斯基", "契诃夫", "普希金"],
     "科幻": ["科幻", "银河帝国", "基地", "三体", "火星"],
     "推理": ["推理", "悬疑", "侦探"],
-    "诗歌": ["诗歌", "诗集", "诗词"],
+    "诗歌": ["诗歌", "诗集", "诗词", "古典诗词"],
+    "古典文学": [
+        "古典文学",
+        "古典小说",
+        "古典诗词",
+        "古典戏曲",
+        "中国文学",
+        "诗经",
+        "楚辞",
+        "唐诗",
+        "宋词",
+        "李白",
+        "杜甫",
+        "苏轼",
+        "李清照",
+        "聊斋",
+        "儒林外史",
+        "牡丹亭",
+        "西厢记",
+        "红楼梦",
+        "西游记",
+        "水浒传",
+        "三国演义",
+        "世说新语",
+        "古文观止",
+        "文心雕龙",
+        "论语",
+        "道德经",
+        "孙子兵法",
+    ],
+    "中国文学": ["中国文学", "古典文学", "古典小说", "古典诗词", "当代文学", "现代文学"],
 }
 
 
@@ -886,8 +916,14 @@ def catalog_search_by_topic(topic: Optional[str], limit: int = 50) -> List[dict]
             recs = session.run(
                 """
                 MATCH (lb:LibraryBook)
-                WHERE ANY(term IN $terms WHERE lb.lib_book CONTAINS term
-                     OR coalesce(lb.summary, '') CONTAINS term)
+                OPTIONAL MATCH (lb)-[:BELONGS_TO]->(c:Category)
+                OPTIONAL MATCH (lb)-[:IN_DISCIPLINE]->(d:Discipline)
+                OPTIONAL MATCH (lb)-[:COVERS_TOPIC]->(t:Topic)
+                OPTIONAL MATCH (lb)-[:WRITTEN_BY]->(a:Author)
+                WITH lb, collect(DISTINCT c.name) + collect(DISTINCT d.name) + collect(DISTINCT t.name) + collect(DISTINCT a.name) AS metadata
+                WHERE ANY(term IN $terms WHERE toLower(lb.lib_book) CONTAINS toLower(term)
+                     OR toLower(coalesce(lb.summary, '')) CONTAINS toLower(term)
+                     OR ANY(m IN metadata WHERE toLower(m) CONTAINS toLower(term)))
                 RETURN lb.book_key AS book_key,
                        lb.lib_book AS lib_book,
                        lb.book_pos AS book_pos,
